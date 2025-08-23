@@ -64,95 +64,55 @@ def main():
 
     args = parser.parse_args()
 
-    if args.archiver_type == 'period':
-        try:
-            archiver = PeriodArchiver(data_type=args.data_type, base_path=args.data_path)
-            reader = TushareReader(data_type=args.data_type, base_path=args.data_path)
-        except ValueError as e:
-            print(f"初始化错误: {e}")
+    # --- Archiver Instantiation ---
+    archiver_map = {
+        'period': PeriodArchiver,
+        'date': DateArchiver,
+        'snapshot': SnapshotArchiver,
+        'trade_date': TradeDateArchiver,
+        'stock_driven': StockDrivenArchiver
+    }
+
+    try:
+        archiver_class = archiver_map.get(args.archiver_type)
+        if not archiver_class:
+            print(f"错误：未知的归档器类型 '{args.archiver_type}'")
             return
+        archiver = archiver_class(data_type=args.data_type, base_path=args.data_path)
+        reader = TushareReader(data_type=args.data_type, base_path=args.data_path)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"初始化错误: {e}")
+        return
 
-        if args.mode == 'backfill':
-            archiver.backfill()
-        elif args.mode == 'incremental':
-            archiver.update(lookback_quarters=args.lookback)
-        elif args.mode == 'summary':
-            print(f"=== '{args.data_type}' 数据概要统计 ===")
-            summary = reader.get_data_summary()
-            if not summary.empty:
-                print(summary.to_string(index=False))
-            else:
-                print("暂无数据")
-            print(f"\n=== '{args.data_type}' 最近请求日志 ===")
-            all_logs = reader.get_request_log(limit=None) # 获取全部日志以统计总数
-            recent_logs = all_logs.head(10) # 只显示最近10条
+    # --- Mode Execution ---
+    if args.mode == 'backfill':
+        kwargs = {}
+        if args.start_date:
+            kwargs['start_date_str'] = args.start_date
+        archiver.backfill(**kwargs)
 
-            print(f"    日志总条数: {len(all_logs)}")
-            if not recent_logs.empty:
-                print("    最近10条日志:")
-                print(recent_logs[['period', 'ingest_date', 'row_count', 'status', 'created_at']].to_string(index=False))
-            else:
-                print("    暂无日志")
+    elif args.mode in ['incremental', 'update']:
+        kwargs = {}
+        if args.archiver_type == 'period':
+            kwargs['lookback_quarters'] = args.lookback
+        archiver.update(**kwargs)
 
-    elif args.archiver_type == 'date':
-        try:
-            archiver = DateArchiver(data_type=args.data_type, base_path=args.data_path)
-        except ValueError as e:
-            print(f"初始化错误: {e}")
-            return
+    elif args.mode == 'summary':
+        print(f"--- Data Summary for '{args.data_type}' ---")
+        summary = reader.get_data_summary()
+        if not summary.empty:
+            print(summary.to_string(index=False))
+        else:
+            print("No data found.")
 
-        if args.mode == 'backfill':
-            kwargs = {}
-            if args.start_date:
-                kwargs['start_date_str'] = args.start_date
-            archiver.backfill(**kwargs)
-        elif args.mode == 'incremental':
-            archiver.update()
-
-    elif args.archiver_type == 'snapshot':
-        try:
-            archiver = SnapshotArchiver(data_type=args.data_type, base_path=args.data_path)
-        except ValueError as e:
-            print(f"初始化错误: {e}")
-            return
-
-        if args.mode == 'update':
-            archiver.update()
-        elif args.mode == 'backfill': # Alias for update in snapshot mode
-            archiver.backfill()
-        elif args.mode == 'summary':
-            print(f"'summary' mode for snapshot is not yet refactored.")
-
-    elif args.archiver_type == 'trade_date':
-        try:
-            archiver = TradeDateArchiver(data_type=args.data_type, base_path=args.data_path)
-        except (ValueError, FileNotFoundError) as e:
-            print(f"初始化错误: {e}")
-            return
-
-        if args.mode == 'backfill':
-            kwargs = {}
-            if args.start_date:
-                kwargs['start_date_str'] = args.start_date
-            archiver.backfill(**kwargs)
-        elif args.mode == 'incremental':
-            archiver.update()
-        elif args.mode == 'summary':
-            print(f"'summary' mode for trade_date is not yet implemented.")
-
-    elif args.archiver_type == 'stock_driven':
-        try:
-            archiver = StockDrivenArchiver(data_type=args.data_type, base_path=args.data_path)
-        except (ValueError, FileNotFoundError) as e:
-            print(f"初始化错误: {e}")
-            return
-
-        if args.mode == 'backfill':
-            archiver.backfill()
-        elif args.mode in ['incremental', 'update']:
-            archiver.update()
-        elif args.mode == 'summary':
-            print(f"'summary' mode for stock_driven is not yet implemented.")
+        print(f"\n--- Recent Logs for '{args.data_type}' ---")
+        logs = reader.get_request_log(limit=20)
+        if not logs.empty:
+            print(logs.to_string(index=False))
+        else:
+            print("No logs found.")
+    else:
+        print(f"错误：归档器 '{args.archiver_type}' 不支持 '{args.mode}' 模式。")
 
     print("完成!")
 

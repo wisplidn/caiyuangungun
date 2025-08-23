@@ -26,72 +26,52 @@ class TushareReader:
             return []
         return sorted([p.name for p in self.landing_path.iterdir() if p.is_dir()])
 
-    def read_latest_data(self, partition_name: str) -> pd.DataFrame:
-        """读取指定分区的最新版本数据"""
-        partition_path = self.landing_path / partition_name
-        if not partition_path.exists():
-            return pd.DataFrame()
+    def _get_metadata(self, partition_path: Path) -> dict:
+        """安全地读取分区或其最新版本的元数据"""
+        metadata_path = partition_path / "metadata.json"
+        if not metadata_path.exists() and partition_path.name.startswith('period='):
+            versions = sorted([v.name for v in partition_path.iterdir() if v.is_dir() and v.name.startswith('ingest_date=')])
+            if versions:
+                metadata_path = partition_path / versions[-1] / "metadata.json"
 
-        # ingest_date is only for period-based archiver
-        if partition_name.startswith('period='):
-            versions = sorted([v.name for v in partition_path.iterdir() if v.is_dir()])
-            if not versions:
-                return pd.DataFrame()
-            latest_version_path = partition_path / versions[-1]
-        else:
-            latest_version_path = partition_path
+        if metadata_path.exists():
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
 
-        data_file = latest_version_path / "data.parquet"
-        if data_file.exists():
-            return pd.read_parquet(data_file)
-        return pd.DataFrame()
+    def get_data_summary(self) -> pd.DataFrame:
+        """获取基于文件系统的数据摘要"""
+        partitions = self.get_partitions()
+        summary_data = []
+        for part_name in partitions:
+            part_path = self.landing_path / part_name
+            metadata = self._get_metadata(part_path)
 
-    def read_all_latest(self) -> pd.DataFrame:
-        """读取所有分区的最新数据并合并"""
-        all_data = []
-        for partition in self.get_partitions():
-            df = self.read_latest_data(partition)
-            if not df.empty:
-                all_data.append(df)
-        
-        return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+            version_count = "N/A"
+            if part_name.startswith('period='):
+                versions = [v for v in part_path.iterdir() if v.is_dir() and v.name.startswith('ingest_date=')]
+                version_count = len(versions)
 
-    def get_request_log(self, limit: int = 100) -> pd.DataFrame:
+            summary_data.append({
+                'partition': metadata.get('partition_key', part_name.split('=')[-1]),
+                'version_count': version_count,
+                'row_count': metadata.get('row_count', 0),
+                'checksum': metadata.get('checksum', 'N/A'),
+                'last_updated': metadata.get('created_at', 'N/A'),
+            })
+        return pd.DataFrame(summary_data)
+
+    def get_request_log(self, limit: int = 20) -> pd.DataFrame:
         """从统一日志库中获取此数据类型的请求日志"""
         if not self.log_db_path.exists():
             return pd.DataFrame()
 
         with sqlite3.connect(self.log_db_path) as conn:
-            query = "SELECT * FROM request_log WHERE data_type = ? ORDER BY created_at DESC"
+            query = "SELECT partition_key, ingest_date, row_count, status, error_message, created_at FROM request_log WHERE data_type = ? ORDER BY created_at DESC"
             params = [self.data_type]
             if limit and limit > 0:
                 query += " LIMIT ?"
                 params.append(limit)
-            
+
             return pd.read_sql_query(query, conn, params=params)
-
-    def get_data_summary(self) -> pd.DataFrame:
-        """获取数据概要统计 (基于文件系统)"""
-        partitions = self.get_partitions()
-        summary = []
-        for part_name in partitions:
-            part_path = self.landing_path / part_name
-            # This logic needs to be more robust to handle different structures
-            # For now, we assume a simple metadata file in the partition dir or version dir
-            metadata_path = part_path / "metadata.json"
-            if not metadata_path.exists() and part_name.startswith('period='):
-                versions = sorted([v.name for v in part_path.iterdir() if v.is_dir()])
-                if versions:
-                    metadata_path = part_path / versions[-1] / "metadata.json"
-
-            if metadata_path.exists():
-                with open(metadata_path, 'r') as f:
-                    metadata = json.load(f)
-                summary.append({
-                    'partition': part_name,
-                    'row_count': metadata.get('row_count', 0),
-                    'checksum': metadata.get('checksum', ''),
-                    'created_at': metadata.get('created_at', '')
-                })
-        return pd.DataFrame(summary)
 
