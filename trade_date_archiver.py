@@ -36,47 +36,63 @@ class TradeDateArchiver(BaseArchiver):
         print(f"  - Found {len(trade_dates)} trading dates.")
         return sorted(trade_dates)
 
-    def backfill(self, start_date_str: str = "20160101"):
-        """从指定日期开始，按交易日历逐日回填"""
-        print(f"[{self.data_type.upper()}] Starting historical backfill from {start_date_str}...")
+    def _get_processed_dates(self) -> set:
+        """扫描落地路径以查找已处理的交易日。"""
+        if not self.landing_path.exists():
+            return set()
+        return {p.name.split('=')[1] for p in self.landing_path.iterdir() if p.is_dir()}
+
+    def backfill(self, start_date_str: str = "19901219"):
+        """高效地回填历史数据，仅处理缺失的交易日。"""
+        print(f"[{self.data_type.upper()}] Starting EFFICIENT historical backfill from {start_date_str}...")
+
+        # 1. 获取理论上需要处理的所有交易日
+        all_trade_dates = self._get_trade_calendar()
+        potential_dates = {d for d in all_trade_dates if d >= start_date_str}
+
+        # 2. 扫描本地已有的交易日
+        processed_dates = self._get_processed_dates()
+
+        # 3. 计算需要处理的缺失交易日
+        dates_to_process = sorted(list(potential_dates - processed_dates))
+
+        print(f"  - Date range: {start_date_str} to {all_trade_dates[-1]}")
+        print(f"  - Total trade dates in range: {len(potential_dates)}")
+        print(f"  - Already processed: {len(processed_dates.intersection(potential_dates))}")
+        print(f"  - Remaining to process: {len(dates_to_process)}")
+
+        if not dates_to_process:
+            print("  - No missing dates to process. Backfill is up-to-date.")
+        else:
+            for trade_date in dates_to_process:
+                self._process_day(trade_date)
+
+        print("Historical backfill complete.")
+
+    def update(self, lookback_days: int = 30):
+        """
+        增量更新最近 N 天的数据。
+        'lookback_days' 定义了从今天起回溯的天数，以重新获取和验证交易日数据。
+        """
+        from datetime import timedelta
+        print(f"[{self.data_type.upper()}] Starting incremental update (lookback: {lookback_days} days)...")
+
+        # 1. 获取所有交易日
         all_trade_dates = self._get_trade_calendar()
 
-        today_str = datetime.now().strftime('%Y%m%d')
-        dates_to_process = [d for d in all_trade_dates if d >= start_date_str and d <= today_str]
+        # 2. 计算回溯期内的交易日
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=lookback_days)
+        start_date_str = start_date.strftime('%Y%m%d')
+
+        dates_to_process = [d for d in all_trade_dates if d >= start_date_str]
+
+        print(f"  - Processing {len(dates_to_process)} trade dates from {start_date_str} to {end_date.strftime('%Y%m%d')}")
 
         for trade_date in dates_to_process:
             self._process_day(trade_date)
 
-        print("Historical backfill complete.")
-
-    def update(self):
-        """从上次成功的位置增量更新到最新的交易日"""
-        print(f"[{self.data_type.upper()}] Starting incremental update...")
-        processed_dates = []
-        if self.landing_path.exists():
-            for path in self.landing_path.iterdir():
-                if path.is_dir() and path.name.startswith('trade_date='):
-                    processed_dates.append(path.name.split('=')[1])
-
-        start_date_str = "20160101"
-        if processed_dates:
-            last_date_str = max(processed_dates)
-            print(f"Last processed date is {last_date_str}. Continuing from next trading date.")
-            all_trade_dates = self._get_trade_calendar()
-            try:
-                last_date_index = all_trade_dates.index(last_date_str)
-                if last_date_index + 1 < len(all_trade_dates):
-                    start_date_str = all_trade_dates[last_date_index + 1]
-                else:
-                    print("Already up to date.")
-                    return
-            except ValueError:
-                print(f"Warning: Last processed date {last_date_str} not in trade calendar. Starting full backfill.")
-                start_date_str = "20160101"
-        else:
-            print("No previous data found. Starting full backfill...")
-
-        self.backfill(start_date_str=start_date_str)
+        print("Incremental update complete.")
 
     def _process_day(self, trade_date: str):
         """处理单个交易日数据的核心逻辑"""
