@@ -41,20 +41,27 @@ DATA_ASSETS = [
     {'name': 'express', 'archiver': 'period', 'policy': UPDATE_POLICIES['quarterly'], 'backfill_start': '20070101'},
     {'name': 'forecast', 'archiver': 'period', 'policy': UPDATE_POLICIES['quarterly'], 'backfill_start': '20070101'},
     {'name': 'fina_mainbz', 'archiver': 'period', 'policy': UPDATE_POLICIES['quarterly'], 'backfill_start': '20070101'},
+    {'name': 'top10_holders', 'archiver': 'period', 'policy': UPDATE_POLICIES['quarterly'], 'backfill_start': '20070101'},
 
     # --- 2. 事件驱动型数据 (DateArchiver) ---
     {'name': 'dividend', 'archiver': 'date', 'partition_key': 'ann_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
     {'name': 'stk_holdernumber', 'archiver': 'date', 'partition_key': 'ann_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
 
+    {'name': 'repurchase', 'archiver': 'date_range', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
+    {'name': 'pledge_stat', 'archiver': 'date', 'partition_key': 'end_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20140101'},
     # --- 3. 交易日数据 (TradeDateArchiver) ---
     {'name': 'daily', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
     {'name': 'daily_basic', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
     {'name': 'adj_factor', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
+    {'name': 'stock_st', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
+    {'name': 'block_trade', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
+    {'name': 'hk_hold', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
 
     # --- 4. 快照数据 (SnapshotArchiver) ---
     {'name': 'stock_basic', 'archiver': 'snapshot', 'policy': UPDATE_POLICIES['snapshot'], 'backfill_start': None},
     {'name': 'index_basic', 'archiver': 'snapshot', 'policy': UPDATE_POLICIES['snapshot'], 'backfill_start': None},
     {'name': 'index_classify', 'archiver': 'snapshot', 'policy': UPDATE_POLICIES['snapshot'], 'backfill_start': None},
+    {'name': 'stk_managers', 'archiver': 'snapshot', 'policy': UPDATE_POLICIES['snapshot'], 'backfill_start': None},
     {'name': 'trade_cal', 'archiver': 'snapshot', 'policy': UPDATE_POLICIES['snapshot'], 'backfill_start': None},
 
     # --- 5. 代码驱动型数据 (StockDrivenArchiver) ---

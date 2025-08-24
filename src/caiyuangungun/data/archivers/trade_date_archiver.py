@@ -8,15 +8,16 @@
 
 import time
 from datetime import datetime
+from typing import List
 
-from base_archiver import BaseArchiver
-from tushare_reader import TushareReader
+from caiyuangungun.data.archivers.base_archiver import BaseArchiver
+from caiyuangungun.data.reader import TushareReader
 
 
 class TradeDateArchiver(BaseArchiver):
     """按交易日历进行数据归档"""
 
-    def _get_trade_calendar(self) -> list[str]:
+    def _get_trade_calendar(self) -> List[str]:
         """使用 TushareReader 读取本地的交易日历快照"""
         print("  - Reading local trade calendar snapshot...")
         reader = TushareReader(data_type='trade_cal', base_path=self.base_path)

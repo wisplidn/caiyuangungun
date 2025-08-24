@@ -7,14 +7,15 @@
 """
 
 from datetime import datetime
+from typing import List
 
-from base_archiver import BaseArchiver
+from caiyuangungun.data.archivers.base_archiver import BaseArchiver
 
 
 class PeriodArchiver(BaseArchiver):
     """按财报季度进行数据归档"""
 
-    def _generate_quarters(self, start_date: datetime, end_date: datetime) -> list[str]:
+    def _generate_quarters(self, start_date: datetime, end_date: datetime) -> List[str]:
         """在指定日期范围内生成所有财报季度列表。"""
         from dateutil.relativedelta import relativedelta
         quarters = set()

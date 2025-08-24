@@ -11,26 +11,26 @@
 --- 命令示例 ---
 
 # 1. 对单个资产进行历史回填 (从指定日期开始)
-python main.py --archiver-type period --data-type income --mode backfill --start-date 20230101
+python src/caiyuangungun/manual_runner.py --archiver-type period --data-type income --mode backfill --start-date 20230101
 
 # 2. 对单个资产进行增量更新 (使用默认回溯期)
-python main.py --archiver-type trade_date --data-type daily --mode update
+python src/caiyuangungun/manual_runner.py --archiver-type trade_date --data-type daily --mode update
 
 # 3. 对单个资产进行增量更新 (自定义回溯期)
 #    --lookback: 对周期性数据，单位为月；对日度数据，单位为天。
-python main.py --archiver-type period --data-type balancesheet --mode update --lookback 24
+python src/caiyuangungun/manual_runner.py --archiver-type period --data-type balancesheet --mode update --lookback 24
 
 # 4. 查看单个资产的数据摘要和请求日志
-python main.py --archiver-type snapshot --data-type stock_basic --mode summary
+python src/caiyuangungun/manual_runner.py --archiver-type snapshot --data-type stock_basic --mode summary
 
 # 5. 为代码驱动型资产指定驱动源
-python main.py --archiver-type stock_driven --data-type index_daily --driver-source COMMON_INDEXES --mode backfill
+python src/caiyuangungun/manual_runner.py --archiver-type stock_driven --data-type index_daily --driver-source COMMON_INDEXES --mode backfill
 
 """
 
 import argparse
-from pipeline import ARCHIVER_MAP, DRIVER_SOURCE_MAP
-from tushare_reader import TushareReader
+from caiyuangungun.pipeline import ARCHIVER_MAP, DRIVER_SOURCE_MAP
+from caiyuangungun.data.reader import TushareReader
 
 def main():
     parser = argparse.ArgumentParser(description='Manual Runner & Debugging Tool for Data Archivers')

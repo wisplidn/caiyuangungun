@@ -8,19 +8,20 @@
 
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from typing import List
 
-from base_archiver import BaseArchiver
+from caiyuangungun.data.archivers.base_archiver import BaseArchiver
 
-from config import COMMON_INDEXES
+from caiyuangungun.config import COMMON_INDEXES
 
 class IndexMonthlyArchiver(BaseArchiver):
     """按指数和月份进行数据归档"""
 
-    def __init__(self, data_type: str, base_path: str = "./data", index_list: list = None):
+    def __init__(self, data_type: str, base_path: str = "./data", index_list: List = None):
         super().__init__(data_type, base_path)
         self.index_list = index_list if index_list is not None else COMMON_INDEXES
 
-    def _generate_months(self, start_date_str: str) -> list[str]:
+    def _generate_months(self, start_date_str: str) -> List[str]:
         """生成从指定日期到当前月份的所有月末日期列表"""
         months = []
         current_month = datetime.strptime(start_date_str, '%Y%m%d').date().replace(day=1)

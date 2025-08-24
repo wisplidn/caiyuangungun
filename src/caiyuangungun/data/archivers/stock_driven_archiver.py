@@ -7,20 +7,21 @@
 """
 
 from datetime import datetime
+from typing import List
 
-from base_archiver import BaseArchiver
-from tushare_reader import TushareReader
+from caiyuangungun.data.archivers.base_archiver import BaseArchiver
+from caiyuangungun.data.reader import TushareReader
 
 
 class StockDrivenArchiver(BaseArchiver):
     """按代码列表进行数据归档（支持股票、指数等）"""
 
-    def __init__(self, data_type: str, base_path: str = "./data", code_list: list = None, driver_data_type: str = 'stock_basic'):
+    def __init__(self, data_type: str, base_path: str = "./data", code_list: List = None, driver_data_type: str = 'stock_basic'):
         super().__init__(data_type, base_path)
         self.code_list = code_list
         self.driver_data_type = driver_data_type
 
-    def _get_code_list(self) -> list[str]:
+    def _get_code_list(self) -> List[str]:
         """获取要遍历的代码列表，可以来自配置或快照文件"""
         if self.code_list is not None:
             print(f"  - Using provided list of {len(self.code_list)} codes.")
@@ -37,7 +38,7 @@ class StockDrivenArchiver(BaseArchiver):
         print(f"  - Found {len(code_list)} codes to process.")
         return sorted(code_list)
 
-    def _get_processed_stocks(self) -> list[str]:
+    def _get_processed_stocks(self) -> List[str]:
         """通过扫描文件系统获取已经处理过的股票代码"""
         if not self.landing_path.exists():
             return []

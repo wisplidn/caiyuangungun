@@ -8,7 +8,7 @@
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from tushare_reader import TushareReader
+from caiyuangungun.data.reader import TushareReader
 
 class QualityChecker:
     """封装所有数据质量验证规则。"""
@@ -58,7 +58,7 @@ class QualityChecker:
         end_date = datetime.now()
         start_date = end_date - relativedelta(months=lookback_months)
 
-        from period_archiver import PeriodArchiver
+        from caiyuangungun.data.archivers.period_archiver import PeriodArchiver
         pa = PeriodArchiver(asset['name'])
         expected_partitions = pa._generate_quarters(start_date, end_date)
 

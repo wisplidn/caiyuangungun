@@ -2,7 +2,7 @@ import chinadata.ca_data as ts #tushare的特殊客户通道，修改会导致to
 import time
 from collections import deque
 import pandas as pd
-from config import TUSHARE_TOKEN, MAX_REQUESTS_PER_MINUTE
+from caiyuangungun.config import TUSHARE_TOKEN, MAX_REQUESTS_PER_MINUTE
 
 # Initialize Tushare API
 ts.set_token(TUSHARE_TOKEN)
@@ -36,9 +36,7 @@ def get_tushare_data(api_name, **kwargs):
         api_func = getattr(pro, api_name)
         df = api_func(**kwargs)
         if not isinstance(df, pd.DataFrame):
-            error_message = f"API '{api_name}' did not return a DataFrame (returned type: {type(df)})."
-            print(error_message)
-            # Still treat as success because the API call itself didn't fail
+            # 如果返回值不是DataFrame（包括None），则返回一个空的DataFrame
             return pd.DataFrame()
         return df
     except Exception as e:
@@ -83,7 +81,55 @@ def get_stock_st(trade_date: str, **kwargs):
         'trade_date': trade_date
     }
     params.update(kwargs)
-    return get_tushare_data('stock_st', **params)
+    try:
+        df = get_tushare_data('stock_st', **params)
+        if df is None:
+            df = pd.DataFrame()
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching stock_st data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_hk_hold(trade_date: str, **kwargs):
+    """获取沪深港股通持股明细"""
+    params = {
+        'trade_date': trade_date
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('hk_hold', **params)
+        if df is None:
+            df = pd.DataFrame()
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching hk_hold data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_pledge_stat(end_date: str, **kwargs):
+    """获取股权质押统计数据"""
+    params = {
+        'end_date': end_date
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('pledge_stat', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching pledge_stat data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_stk_managers(ts_code: str, **kwargs):
+    """获取上市公司管理层"""
+    params = {
+        'ts_code': ts_code
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('stk_managers', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching stk_managers data: {e}")
+        return pd.DataFrame(), 'error'
 
 
 def get_stk_rewards(ts_code: str, **kwargs):
@@ -161,7 +207,12 @@ def get_repurchase(start_date: str, end_date: str, **kwargs):
         'end_date': end_date
     }
     params.update(kwargs)
-    return get_tushare_data('repurchase', **params)
+    try:
+        df = get_tushare_data('repurchase', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching repurchase data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_share_float(start_date: str, end_date: str, **kwargs):
     """获取限售股解禁信息"""
@@ -179,7 +230,12 @@ def get_top10_holders(ts_code: str, **kwargs):
         'ts_code': ts_code
     }
     params.update(kwargs)
-    return get_tushare_data('top10_holders', **params)
+    try:
+        df = get_tushare_data('top10_holders', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching top10_holders data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_top10_floatholders(ts_code: str, **kwargs):
     """获取前十大流通股东"""

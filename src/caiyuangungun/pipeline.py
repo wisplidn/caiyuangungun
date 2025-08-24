@@ -25,17 +25,18 @@ python pipeline.py --mode quality_check
 """
 
 import argparse
-from data_manifest import DATA_ASSETS
-from config import COMMON_INDEXES
+from caiyuangungun.data.manifest import DATA_ASSETS
+from caiyuangungun.config import COMMON_INDEXES
 
 # 导入所有归档器
-from period_archiver import PeriodArchiver
-from date_archiver import DateArchiver
-from snapshot_archiver import SnapshotArchiver
-from trade_date_archiver import TradeDateArchiver
-from stock_driven_archiver import StockDrivenArchiver
-from index_monthly_archiver import IndexMonthlyArchiver
+from caiyuangungun.data.archivers.period_archiver import PeriodArchiver
+from caiyuangungun.data.archivers.date_archiver import DateArchiver
+from caiyuangungun.data.archivers.snapshot_archiver import SnapshotArchiver
+from caiyuangungun.data.archivers.trade_date_archiver import TradeDateArchiver
+from caiyuangungun.data.archivers.stock_driven_archiver import StockDrivenArchiver
+from caiyuangungun.data.archivers.index_monthly_archiver import IndexMonthlyArchiver
 
+from caiyuangungun.data.archivers.date_range_archiver import DateRangeArchiver
 
 ARCHIVER_MAP = {
     'period': PeriodArchiver,
@@ -44,6 +45,7 @@ ARCHIVER_MAP = {
     'trade_date': TradeDateArchiver,
     'stock_driven': StockDrivenArchiver,
     'index_monthly': IndexMonthlyArchiver,
+    'date_range': DateRangeArchiver,
 }
 
 DRIVER_SOURCE_MAP = {
@@ -68,7 +70,7 @@ def run_backfill_pipeline():
 
         try:
             archiver_class = ARCHIVER_MAP[archiver_type]
-            
+
             # --- Archiver-specific Instantiation ---
             init_kwargs = {'data_type': asset_name}
             if asset.get('driver_source'):
@@ -84,7 +86,7 @@ def run_backfill_pipeline():
             backfill_kwargs = {}
             if start_date:
                 backfill_kwargs['start_date_str'] = start_date
-            
+
             archiver.backfill(**backfill_kwargs)
 
         except Exception as e:
@@ -140,7 +142,7 @@ def run_update_pipeline():
 
     print("\n--- Incremental Update Pipeline Complete ---")
 
-from quality_checker import QualityChecker
+from caiyuangungun.data.quality_checker import QualityChecker
 
 def _run_targeted_refetch(failures: list):
     """对质量检查失败的特定分区执行一次定向重新获取。"""

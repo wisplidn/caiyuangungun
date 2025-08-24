@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import tushare_client
+from caiyuangungun.data import client as tushare_client
 
 
 class BaseArchiver(ABC):

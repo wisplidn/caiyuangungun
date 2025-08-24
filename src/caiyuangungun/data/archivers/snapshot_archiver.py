@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from base_archiver import BaseArchiver
+from caiyuangungun.data.archivers.base_archiver import BaseArchiver
 
 
 class SnapshotArchiver(BaseArchiver):

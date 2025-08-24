@@ -9,7 +9,7 @@
 import time
 from datetime import datetime, timedelta
 
-from base_archiver import BaseArchiver
+from caiyuangungun.data.archivers.base_archiver import BaseArchiver
 
 
 class DateArchiver(BaseArchiver):
