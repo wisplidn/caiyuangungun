@@ -2,16 +2,25 @@
 """
 自动化数据管道 - 主控脚本 (Orchestrator)
 
-该脚本是与数据系统交互的唯一入口点。
-它读取 data_manifest.py 中的数据资产清单，并根据指定的模式执行操作。
+该脚本是与数据系统交互的核心入口点。
+它读取 `data_manifest.py` 中的资产清单，并根据指定模式执行相应操作。
+每次数据操作后，都会自动运行一个集成的“校验-重试-报告”工作流，以确保数据质量。
 
 --- 命令示例 ---
 
-# 1. 执行所有数据资产的历史回填 (自动跳过已完成部分)
+# 1. 历史回填
+#    对清单中的所有资产，从其 `backfill_start` 日期开始，逐个分区地下载历史数据。
+#    自动跳过已存在的本地分区，支持断点续传。
 python pipeline.py --mode backfill
 
-# 2. 执行所有数据资产的日常增量更新 (根据各自策略)
+# 2. 日常更新
+#    对清单中的所有资产，根据其 `policy` 中定义的策略（如回溯期），智能地更新近期数据。
 python pipeline.py --mode update
+
+# 3. 独立质量检查
+#    在不执行数据下载的情况下，独立运行“校验-重试-报告”工作流。
+#    这对于手动修复数据或定期巡检非常有用。
+python pipeline.py --mode quality_check
 
 """
 
@@ -131,17 +140,101 @@ def run_update_pipeline():
 
     print("\n--- Incremental Update Pipeline Complete ---")
 
+from quality_checker import QualityChecker
+
+def _run_targeted_refetch(failures: list):
+    """对质量检查失败的特定分区执行一次定向重新获取。"""
+    print("\n--- Starting Targeted Refetch for Failed Partitions ---")
+    if not failures:
+        print("  - No failures to refetch.")
+        return
+
+    from itertools import groupby
+    # 按资产分组以减少初始化次数
+    sorted_failures = sorted(failures, key=lambda x: x['asset']['name'])
+    grouped_failures = groupby(sorted_failures, key=lambda x: x['asset']['name'])
+
+    for asset_name, asset_failures_group in grouped_failures:
+        failures_list = list(asset_failures_group)
+        asset_info = failures_list[0]['asset']
+        archiver_type = asset_info['archiver']
+        print(f"  - Refetching {len(failures_list)} partition(s) for asset: '{asset_name}'")
+
+        try:
+            archiver_class = ARCHIVER_MAP[archiver_type]
+            archiver = archiver_class(data_type=asset_name)
+
+            # 动态确定要调用的处理方法 (e.g., _process_period, _process_day)
+            process_method_name = f"_process_{archiver_type.split('_')[0].replace('trade', '').replace('index', '')}"
+            if 'date' in archiver_type: process_method_name = '_process_day'
+            if 'period' in archiver_type: process_method_name = '_process_period'
+            if 'snapshot' in archiver_type: process_method_name = 'update' # 快照没有单分区处理方法，直接调用update
+
+            process_method = getattr(archiver, process_method_name, None)
+
+            if not process_method:
+                print(f"    - WARNING: Cannot find process method for archiver '{archiver_type}'. Skipping refetch.")
+                continue
+
+            for failure in failures_list:
+                partition = failure['partition']
+                print(f"    - Refetching partition: {partition}")
+                if archiver_type == 'snapshot':
+                    process_method()
+                else:
+                    process_method(partition)
+
+        except Exception as e:
+            print(f"    - FAILED to refetch for asset '{asset_name}'. Error: {e}")
+
+def run_quality_assurance_workflow():
+    """执行集成的“校验-重试-报告”工作流。"""
+    checker = QualityChecker(DATA_ASSETS)
+
+    # 1. 首次校验
+    initial_failures = checker.run_checks()
+
+    if not initial_failures:
+        print("\n[QA SUCCESS] All data assets passed quality checks. No issues found.")
+        return
+
+    # 2. 定向重试
+    print(f"\n[QA WARNING] Found {len(initial_failures)} data quality issue(s).")
+    for f in initial_failures:
+        print(f"  - Asset: {f['asset']['name']}, Partition: {f['partition']}, Reason: {f['reason']}")
+
+    _run_targeted_refetch(initial_failures)
+
+    # 3. 最终报告
+    print("\n--- Running Final Quality Check After Refetch ---")
+    final_failures = checker.run_checks()
+
+    if not final_failures:
+        print("\n[QA SUCCESS] All previously found issues have been successfully resolved.")
+    else:
+        print(f"\n[QA FAILED] {len(final_failures)} data quality issue(s) persist after refetch attempt:")
+        for f in final_failures:
+            print(f"  - Asset: {f['asset']['name']}, Partition: {f['partition']}, Reason: {f['reason']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Automated Data Pipeline Orchestrator')
-    parser.add_argument('--mode', choices=['backfill', 'update'], required=True,
-                        help='The pipeline mode to run: `backfill` for historical data, `update` for daily increments.')
-    
+    parser.add_argument('--mode', choices=['backfill', 'update', 'quality_check'], required=True,
+                        help='The pipeline mode to run.')
+
     args = parser.parse_args()
 
     if args.mode == 'backfill':
         run_backfill_pipeline()
+        # 在回填后自动运行质量保证
+        run_quality_assurance_workflow()
     elif args.mode == 'update':
         run_update_pipeline()
+        # 在更新后自动运行质量保证
+        run_quality_assurance_workflow()
+    elif args.mode == 'quality_check':
+        # 仅独立运行质量保证
+        run_quality_assurance_workflow()
 
 if __name__ == "__main__":
     main()

@@ -11,7 +11,7 @@
 UPDATE_POLICIES = {
     'quarterly': {
         'frequency': 'quarterly',
-        'lookback_months': 8,  # 回溯8个月，确保能覆盖并修正任何重述的财报
+        'lookback_months': 24,  # 回溯8个月，确保能覆盖并修正任何重述的财报
         'run_window': None  # 默认所有月份都运行
     },
     'monthly': {
@@ -20,7 +20,7 @@ UPDATE_POLICIES = {
     },
     'daily_30d_lookback': {
         'frequency': 'daily',
-        'lookback_days': 30  # 回溯30天，用于修正日度数据
+        'lookback_days': 120  # 回溯30天，用于修正日度数据
     },
     'daily_full_reload': {
         'frequency': 'daily',
@@ -43,12 +43,13 @@ DATA_ASSETS = [
     {'name': 'fina_mainbz', 'archiver': 'period', 'policy': UPDATE_POLICIES['quarterly'], 'backfill_start': '20070101'},
 
     # --- 2. 事件驱动型数据 (DateArchiver) ---
-    {'name': 'dividend', 'archiver': 'date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
+    {'name': 'dividend', 'archiver': 'date', 'partition_key': 'ann_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
+    {'name': 'stk_holdernumber', 'archiver': 'date', 'partition_key': 'ann_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
 
     # --- 3. 交易日数据 (TradeDateArchiver) ---
-    {'name': 'daily', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '19901219'},
-    {'name': 'daily_basic', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
-    {'name': 'adj_factor', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20070101'},
+    {'name': 'daily', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
+    {'name': 'daily_basic', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
+    {'name': 'adj_factor', 'archiver': 'trade_date', 'policy': UPDATE_POLICIES['daily_30d_lookback'], 'backfill_start': '20060101'},
 
     # --- 4. 快照数据 (SnapshotArchiver) ---
     {'name': 'stock_basic', 'archiver': 'snapshot', 'policy': UPDATE_POLICIES['snapshot'], 'backfill_start': None},
@@ -58,9 +59,14 @@ DATA_ASSETS = [
 
     # --- 5. 代码驱动型数据 (StockDrivenArchiver) ---
     {'name': 'index_daily', 'archiver': 'stock_driven', 'driver_source': 'COMMON_INDEXES', 'policy': UPDATE_POLICIES['daily_full_reload'], 'backfill_start': None},
-    {'name': 'stk_holdernumber', 'archiver': 'stock_driven', 'driver_source': 'stock_basic', 'policy': UPDATE_POLICIES['daily_full_reload'], 'backfill_start': None},
 
     # --- 6. 指数月度数据 (IndexMonthlyArchiver) ---
     {'name': 'index_weight', 'archiver': 'index_monthly', 'policy': UPDATE_POLICIES['monthly'], 'backfill_start': '20070101'},
 ]
+
+
+
+
+
+
 

@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """
-数据归档器 - 手动调试运行脚本 (Manual Runner & Debugging Tool)
+数据归档器 - 手动调试与运行脚本 (Manual Runner & Debugging Tool)
 
-该脚本用于对单个数据资产进行手动的、精细化的操作，主要用于开发和调试新归档器。
-日常的、全量的自动化更新请使用 `pipeline.py`。
+该脚本的核心价值在于 **开发与调试**。
+当需要接入一个新的数据接口时，你可以使用此脚本对单个归档器进行精细化的操作，
+而无需运行完整的、可能耗时很长的自动化管道。
+
+日常的、全量的自动化数据更新，请使用 `pipeline.py`。
 
 --- 命令示例 ---
 
-# 1. 对单个数据资产进行历史回填
+# 1. 对单个资产进行历史回填 (从指定日期开始)
 python main.py --archiver-type period --data-type income --mode backfill --start-date 20230101
 
-# 2. 对单个数据资产进行增量更新 (使用默认回溯期)
+# 2. 对单个资产进行增量更新 (使用默认回溯期)
 python main.py --archiver-type trade_date --data-type daily --mode update
 
-# 3. 对单个数据资产进行增量更新 (并指定回溯期)
+# 3. 对单个资产进行增量更新 (自定义回溯期)
+#    --lookback: 对周期性数据，单位为月；对日度数据，单位为天。
 python main.py --archiver-type period --data-type balancesheet --mode update --lookback 24
 
-# 4. 查看单个数据资产的摘要信息
+# 4. 查看单个资产的数据摘要和请求日志
 python main.py --archiver-type snapshot --data-type stock_basic --mode summary
+
+# 5. 为代码驱动型资产指定驱动源
+python main.py --archiver-type stock_driven --data-type index_daily --driver-source COMMON_INDEXES --mode backfill
 
 """
 

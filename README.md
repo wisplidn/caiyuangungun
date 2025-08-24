@@ -1,95 +1,73 @@
-# 通用 Tushare 数据归档系统
+# 自动化量化数据管道
 
-本系统旨在提供一个统一、可扩展、自动化的 Tushare 数据归档解决方案。它支持多种数据归档模式，能够适应不同类型的数据接口，并将所有数据以 Parquet 格式进行分区存储，便于后续的量化分析和研究。
+这是一个由元数据驱动的、自动化的Tushare数据下载与管理管道。它的核心目标是为量化研究提供一个稳定、可靠、可扩展的数据基础。
 
-## 核心架构
+## 核心特性
 
-系统采用统一的、面向对象的架构，其核心是 `BaseArchiver` 抽象基类。所有特定类型的归档器都继承自该基类，共享一套通用的逻辑，包括：
+- **元数据驱动**: 所有数据资产的类型、更新策略和历史回填配置都在 `data_manifest.py` 中集中管理，易于扩展。
+- **自动化**: 支持全自动的历史数据回填和日常增量更新。
+- **数据质量保障**: 内置“校验-重试-报告”工作流，能自动发现并修复常见的数据缺失问题。
+- **版本化存储**: 所有数据都以分区形式存储，并对更新进行版本化归档，确保数据的可追溯性。
+- **高效稳定**: 智能的更新策略和对API的友好调用，确保了数据获取的高效和稳定。
 
-- **统一的日志系统**：所有归档活动都记录在同一个 SQLite 数据库 (`data/logs/request_log.db`) 中，便于监控和调试。
-- **统一的数据存储**：所有原始数据都以 Parquet 格式存储在 `data/raw/landing/tushare/{data_type}` 目录下。
-- **标准化的分区**：采用自描述的目录结构 (`partition_key=value`)，使得数据易于发现和读取。
+## 如何开始
 
-## 支持的归档模式
+### 1. 安装依赖
 
-系统通过 `main.py` 脚本提供统一的命令行接口，支持以下几种归档模式 (`--archiver-type`)：
+```bash
+pip install -r requirements.txt
+```
 
-| 归档器类型 | `--archiver-type` | 描述 | 适用场景 |
-| :--- | :--- | :--- | :--- |
-| **季度归档器** | `period` | 按财报季度 (`YYYYMMDD`) 进行版本化归档。 | 利润表、资产负债表等财报数据。 |
-| **日期归档器** | `date` | 按公告日 (`YYYYMMDD`) 逐日归档。 | 分红送股等事件驱动数据。 |
-| **快照归档器** | `snapshot` | 每日获取全量数据，生成一个完整的快照。 | 股票列表、交易日历等基础信息。 |
-| **交易日归档器** | `trade_date` | 依赖本地交易日历，按交易日 (`YYYYMMDD`) 逐日归档。 | ST股列表等需要按交易日获取的数据。 |
-| **股票驱动归档器**| `stock_driven` | 依赖本地股票列表，按股票代码 (`ts_code`) 逐一归档。 | 管理层持股等需要按股票代码查询的数据。 |
+### 2. 配置 Tushare Token
 
----
+在项目根目录下创建一个 `.env` 文件，并填入你的Tushare API Token：
 
-## 使用方法
+```
+TUSHARE_TOKEN=your_actual_tushare_token_here
+```
 
-所有操作都通过 `main.py` 脚本执行。核心参数包括：
-- `--archiver-type`: 选择使用的归档器类型。
-- `--data-type`: 指定要获取的 Tushare 数据接口名 (例如 `income`, `stock_basic`)。
-- `--mode`: 指定运行模式 (`backfill`, `incremental`/`update`, `summary`)。
+### 3. (可选) 自定义数据资产
 
-### 常用命令示例
+打开 `data_manifest.py`，你可以根据自己的需求，轻松地添加、删除或修改任何数据资产的配置。
 
-**1. 快照数据 (Snapshot)**
+## 核心工作流
 
-- **获取交易日历 (`trade_cal`)**
-  ```bash
-  python main.py --archiver-type snapshot --data-type trade_cal --mode update
-  ```
-- **获取股票基础信息 (`stock_basic`)**
-  ```bash
-  python main.py --archiver-type snapshot --data-type stock_basic --mode update
-  ```
+项目的主要交互入口是 `pipeline.py`。
 
-**2. 季度归档 (Period-based)**
+### 1. 历史数据回填
 
-- **回填利润表 (`income`) 历史数据**
-  ```bash
-  python main.py --archiver-type period --data-type income --mode backfill
-  ```
-- **增量更新利润表 (最近12个季度)**
-  ```bash
-  python main.py --archiver-type period --data-type income --mode incremental
-  ```
+该命令将根据 `data_manifest.py` 中的配置，为所有资产下载完整的历史数据。它支持断点续传，可以安全地多次运行。
 
-**3. 日期归档 (Date-based)**
+```bash
+python pipeline.py --mode backfill
+```
 
-- **回填分红送股 (`dividend`) 数据**
-  ```bash
-  python main.py --archiver-type date --data-type dividend --mode backfill --start-date 20070101
-  ```
+### 2. 日常增量更新
 
-**4. 交易日归档 (Trade-date-based)**
+这是最常用的命令。它将为所有资产智能地更新近期数据，并自动运行数据质量检查与修复流程。
 
-- **回填ST股列表 (`stock_st`) 数据 (依赖 `trade_cal` 快照)**
-  ```bash
-  python main.py --archiver-type trade_date --data-type stock_st --mode backfill --start-date 20160101
-  ```
-- **回填沪深港通成份股 (`stock_hsgt_hk_sz`)**
-  ```bash
-  python main.py --archiver-type trade_date --data-type stock_hsgt_hk_sz --mode backfill --start-date 20250812
-  ```
+```bash
+python pipeline.py --mode update
+```
 
-**5. 股票驱动归档 (Stock-driven)**
+### 3. 独立数据质量检查
 
-- **回填管理层持股 (`stk_rewards`) 数据 (依赖 `stock_basic` 快照)**
-  ```bash
-  python main.py --archiver-type stock_driven --data-type stk_rewards --mode backfill
-  ```
+如果你想在不下载任何数据的情况下，独立地对本地数据进行一次完整的质量检查和自动修复，请运行：
 
-**6. 查看摘要和日志**
+```bash
+python pipeline.py --mode quality_check
+```
 
-- **查看 `income` 数据的摘要和最近日志**
-  ```bash
-  python main.py --archiver-type period --data_type income --mode summary
-  ```
-- **查看 `stock_basic` 数据的摘要和最近日志**
-  ```bash
-  python main.py --archiver-type snapshot --data_type stock_basic --mode summary
-  ```
+## 手动调试
+
+对于开发者，`main.py` 提供了一个用于手动调试单个数据归档器的工具。这在开发新的数据接口或排查特定问题时非常有用。
+
+**示例**: 对 `income`（利润表）数据，从 `20230101` 开始进行一次手动回填。
+
+```bash
+python main.py --archiver-type period --data-type income --mode backfill --start-date 20230101
+```
+
 
 
 
