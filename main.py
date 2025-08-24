@@ -6,6 +6,8 @@
 1. period: 按财报季度归档 (适用于 income, balancesheet 等)。
 2. date:   按公告日期归档 (适用于 dividend 等事件驱动数据)。
 3. snapshot: 按快照模式归档 (适用于 stock_basic 等日频全量更新数据)。
+4. trade_date: 按交易日归档 (适用于 trade_cal 等交易日数据)。
+5. stock_driven: 按股票驱动模式归档 (适用于 stock_basic 等股票驱动数据)。
 
 --- 常用命令示例 ---
 
@@ -33,11 +35,41 @@
 #   更新快照: python main.py --archiver-type snapshot --data-type stock_basic --mode update
 #   查看摘要: python main.py --archiver-type snapshot --data-type stock_basic --mode summary
 
+
+
+#   指数基本信息 (index_basic)
+#   更新快照: python main.py --archiver-type snapshot --data-type index_basic --mode update
+
+#   申万行业分类 (index_classify)
+#   更新快照: python main.py --archiver-type snapshot --data-type index_classify --mode update
+
+
+
+
 """
 
 #   财务审计意见 (fina_audit)
 #   python main.py --archiver-type period --data-type fina_audit --mode backfill
 
+
+
+# --- 4. 按交易日归档 (trade_date-based) ---
+
+#   大宗交易 (block_trade)
+#   python main.py --archiver-type trade_date --data-type block_trade --mode backfill
+
+# --- 5. 按股票代码归档 (stock_driven-based) ---
+
+#   股东人数 (stk_holdernumber)
+#   python main.py --archiver-type stock_driven --data-type stk_holdernumber --mode backfill
+
+# --- 6. 按指数+月度归档 (index_monthly-based) ---
+
+#   指数成分和权重 (index_weight)
+#   python main.py --archiver-type index_monthly --data-type index_weight --mode backfill
+
+#   指数日线行情 (index_daily)
+#   python main.py --archiver-type stock_driven --data-type index_daily --mode backfill
 
 import argparse
 
@@ -47,11 +79,13 @@ from snapshot_archiver import SnapshotArchiver
 from trade_date_archiver import TradeDateArchiver
 from tushare_reader import TushareReader
 from stock_driven_archiver import StockDrivenArchiver
+from index_monthly_archiver import IndexMonthlyArchiver
+from config import COMMON_INDEXES
 
 def main():
     parser = argparse.ArgumentParser(description='通用Tushare数据归档系统')
-    parser.add_argument('--archiver-type', type=str, choices=['period', 'date', 'snapshot', 'trade_date', 'stock_driven'], default='period',
-                        help='归档器类型: period (季度), date (公告日), snapshot (快照), trade_date (交易日), stock_driven (股票驱动)')
+    parser.add_argument('--archiver-type', type=str, choices=['period', 'date', 'snapshot', 'trade_date', 'stock_driven', 'index_monthly'], default='period',
+                        help='归档器类型: period (季度), date (公告日), snapshot (快照), trade_date (交易日), stock_driven (股票驱动), index_monthly (指数月度)')
     parser.add_argument('--data-type', type=str, required=True,
                         help='Tushare数据类型 (例如: income, dividend)')
     parser.add_argument('--mode', choices=['backfill', 'incremental', 'summary', 'update'],
@@ -70,7 +104,8 @@ def main():
         'date': DateArchiver,
         'snapshot': SnapshotArchiver,
         'trade_date': TradeDateArchiver,
-        'stock_driven': StockDrivenArchiver
+        'stock_driven': StockDrivenArchiver,
+        'index_monthly': IndexMonthlyArchiver
     }
 
     try:
@@ -78,7 +113,14 @@ def main():
         if not archiver_class:
             print(f"错误：未知的归档器类型 '{args.archiver_type}'")
             return
-        archiver = archiver_class(data_type=args.data_type, base_path=args.data_path)
+        # --- Archiver-specific Instantiation ---
+        if args.archiver_type == 'date':
+            date_field = 'report_date' if args.data_type == 'report_rc' else 'ann_date'
+            archiver = archiver_class(data_type=args.data_type, base_path=args.data_path, date_field=date_field)
+        elif args.data_type == 'index_daily':
+            archiver = archiver_class(data_type=args.data_type, base_path=args.data_path, code_list=COMMON_INDEXES)
+        else:
+            archiver = archiver_class(data_type=args.data_type, base_path=args.data_path)
         reader = TushareReader(data_type=args.data_type, base_path=args.data_path)
     except (ValueError, FileNotFoundError) as e:
         print(f"初始化错误: {e}")

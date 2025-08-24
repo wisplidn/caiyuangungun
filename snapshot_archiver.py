@@ -61,6 +61,7 @@ class SnapshotArchiver(BaseArchiver):
 
         data_file = partition_path / "data.parquet"
         df.to_parquet(data_file, compression='snappy', index=False)
+        print(f"  - Saved {len(df)} records to {data_file}")
 
         metadata = {
             "partition_key": snapshot_date,

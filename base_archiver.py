@@ -28,6 +28,7 @@ class BaseArchiver(ABC):
         self.data_type = data_type
         self.base_path = Path(base_path)
         self.landing_path = self.base_path / "raw" / "landing" / "tushare" / self.data_type
+        self.archive_path = self.base_path / "raw" / "archive" / "tushare" / self.data_type
         self.log_db_path = self.base_path / "logs" / "request_log.db"
 
         # 动态获取数据提取函数
@@ -52,6 +53,7 @@ class BaseArchiver(ABC):
     def _create_directories(self):
         """创建归档所需的基础目录结构"""
         self.landing_path.mkdir(parents=True, exist_ok=True)
+        self.archive_path.mkdir(parents=True, exist_ok=True)
         self.log_db_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _init_log_db(self):
@@ -99,7 +101,7 @@ class BaseArchiver(ABC):
         # 动态选择存在的列进行排序，以适应不同接口返回的字段
         potential_keys = ['ts_code', 'ann_date', 'end_date', 'trade_date']
         sort_keys = [key for key in potential_keys if key in df.columns]
-        
+
         if not sort_keys:
             # 如果没有任何预期的排序列，则按所有列排序以确保一致性
             sort_keys = sorted(df.columns.tolist())
@@ -107,6 +109,58 @@ class BaseArchiver(ABC):
         df_sorted = df.sort_values(by=sort_keys).reset_index(drop=True)
         content = df_sorted.to_csv(index=False, float_format='%.6f').encode('utf-8')
         return hashlib.md5(content).hexdigest()
+
+    def _save_partitioned_data(self, df: pd.DataFrame, partition_path: Path, partition_key: str):
+        """统一的、支持版本控制的数据写入方法"""
+        partition_path.mkdir(parents=True, exist_ok=True)
+        new_checksum = self._calculate_checksum(df)
+
+        metadata_file = partition_path / "metadata.json"
+        data_file = partition_path / "data.parquet"
+        status = 'success' # Default status
+
+        if metadata_file.exists():
+            with open(metadata_file, 'r') as f:
+                old_metadata = json.load(f)
+            old_checksum = old_metadata.get('checksum')
+
+            if new_checksum == old_checksum:
+                print(f"  - Data for partition {partition_key} has not changed. Skipping write.")
+                return 'no_change'
+
+            # --- Archive old data before overwriting ---
+            status = 'updated'
+            archive_partition_path = self.archive_path / partition_path.name
+            archive_partition_path.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+            # Move old data file
+            old_data_file = partition_path / "data.parquet"
+            if old_data_file.exists():
+                archive_data_file = archive_partition_path / f"data_{timestamp}.parquet"
+                old_data_file.rename(archive_data_file)
+                print(f"  - Archived old data to {archive_data_file}")
+
+            # Move old metadata file
+            archive_metadata_file = archive_partition_path / f"metadata_{timestamp}.json"
+            metadata_file.rename(archive_metadata_file)
+            print(f"  - Archived old metadata to {archive_metadata_file}")
+
+        # --- Write new data and metadata ---
+        if not df.empty:
+            df.to_parquet(data_file, compression='snappy', index=False)
+            print(f"  - Saved {len(df)} records to {data_file}")
+
+        metadata = {
+            "partition_key": partition_key,
+            "row_count": len(df),
+            "checksum": new_checksum,
+            "updated_at": datetime.now().isoformat(),
+        }
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+        return status
 
     @abstractmethod
     def backfill(self, **kwargs):

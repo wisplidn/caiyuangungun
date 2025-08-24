@@ -1,4 +1,4 @@
-import chinadata.ca_data as ts #tushare的加速通道，不可修改
+import chinadata.ca_data as ts #tushare的特殊客户通道，修改会导致token失效
 import time
 from collections import deque
 import pandas as pd
@@ -7,6 +7,7 @@ from config import TUSHARE_TOKEN, MAX_REQUESTS_PER_MINUTE
 # Initialize Tushare API
 ts.set_token(TUSHARE_TOKEN)
 pro = ts.pro_api()
+
 
 # Request rate limiting configuration
 request_timestamps = deque(maxlen=MAX_REQUESTS_PER_MINUTE)
@@ -35,12 +36,15 @@ def get_tushare_data(api_name, **kwargs):
         api_func = getattr(pro, api_name)
         df = api_func(**kwargs)
         if not isinstance(df, pd.DataFrame):
-            print(f"API '{api_name}' did not return a DataFrame (returned type: {type(df)}). Returning empty DataFrame.")
-            return pd.DataFrame(), 'success' # API call was successful, but data is not as expected.
-        return df, 'success'
+            error_message = f"API '{api_name}' did not return a DataFrame (returned type: {type(df)})."
+            print(error_message)
+            # Still treat as success because the API call itself didn't fail
+            return pd.DataFrame()
+        return df
     except Exception as e:
-        print(f"An error occurred when calling {api_name}: {e}")
-        return pd.DataFrame(), 'error'
+        error_message = f"An error occurred when calling {api_name}: {e}"
+        print(error_message)
+        raise IOError(error_message)
 
 # Specific functions for different data types
 
@@ -48,19 +52,20 @@ def get_stock_basic(fields='ts_code,symbol,name,area,industry,fullname,enname,cn
     """获取股票基础信息数据"""
     dfs = []
     for status in ['L', 'D', 'P']:
-        df, api_status = get_tushare_data('stock_basic', exchange='', list_status=status, fields=fields)
-        if api_status == 'success' and not df.empty:
-            dfs.append(df)
-            print(f"Fetched {len(df)} stocks with status {status}")
-        elif api_status == 'error':
-            print(f"Error fetching stocks with status {status}")
+        try:
+            df = get_tushare_data('stock_basic', exchange='', list_status=status, fields=fields)
+            if not df.empty:
+                dfs.append(df)
+                print(f"Fetched {len(df)} stocks with status {status}")
+        except IOError as e:
+            print(f"Error fetching stocks with status {status}: {e}")
 
     if not dfs:
-        return pd.DataFrame(), 'error'
+        raise IOError("Failed to fetch any stock_basic data after trying all list statuses.")
 
     result_df = pd.concat(dfs, ignore_index=True)
     print(f"Total fetched: {len(result_df)} stocks")
-    return result_df, 'success'
+    return result_df
 
 def get_trade_cal(exchange='', **kwargs):
     """获取交易日历数据"""
@@ -111,6 +116,101 @@ def get_stock_hsgt_hk_sh(trade_date: str, **kwargs):
     """获取沪股通(港->沪)成份股"""
     return _get_stock_hsgt(trade_date, 'HK_SH', **kwargs)
 
+def get_daily(trade_date: str, **kwargs):
+    """获取A股日线行情"""
+    params = {
+        'trade_date': trade_date
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('daily', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching daily data: {e}")
+        return pd.DataFrame(), 'error'
+
+
+def get_daily_basic(trade_date: str, **kwargs):
+    """获取每日指标"""
+    params = {
+        'trade_date': trade_date
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('daily_basic', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching daily_basic data: {e}")
+        return pd.DataFrame(), 'error'
+
+
+
+def get_suspend_d(trade_date: str, **kwargs):
+    """获取每日停复牌信息"""
+    params = {
+        'trade_date': trade_date
+    }
+    params.update(kwargs)
+    return get_tushare_data('suspend_d', **params)
+
+
+def get_repurchase(start_date: str, end_date: str, **kwargs):
+    """获取股票回购信息"""
+    params = {
+        'start_date': start_date,
+        'end_date': end_date
+    }
+    params.update(kwargs)
+    return get_tushare_data('repurchase', **params)
+
+def get_share_float(start_date: str, end_date: str, **kwargs):
+    """获取限售股解禁信息"""
+    params = {
+        'start_date': start_date,
+        'end_date': end_date
+    }
+    params.update(kwargs)
+    return get_tushare_data('share_float', **params)
+
+
+def get_top10_holders(ts_code: str, **kwargs):
+    """获取前十大股东"""
+    params = {
+        'ts_code': ts_code
+    }
+    params.update(kwargs)
+    return get_tushare_data('top10_holders', **params)
+
+def get_top10_floatholders(ts_code: str, **kwargs):
+    """获取前十大流通股东"""
+    params = {
+        'ts_code': ts_code
+    }
+    params.update(kwargs)
+    return get_tushare_data('top10_floatholders', **params)
+
+def get_pledge_detail(ts_code: str, **kwargs):
+    """获取股权质押明细"""
+    params = {
+        'ts_code': ts_code
+    }
+    params.update(kwargs)
+    return get_tushare_data('pledge_detail', **params)
+
+def get_adj_factor(trade_date: str, **kwargs):
+    """获取复权因子"""
+    params = {
+        'trade_date': trade_date
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('adj_factor', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching adj_factor data: {e}")
+        return pd.DataFrame(), 'error'
+
+
 def get_stock_hsgt_sh_hk(trade_date: str, **kwargs):
     """获取港股通(沪->港)成份股"""
     return _get_stock_hsgt(trade_date, 'SH_HK', **kwargs)
@@ -133,49 +233,84 @@ def get_income_vip(period=None, fields=None):
         params['period'] = period
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('income_vip', **params)
+    try:
+        df = get_tushare_data('income_vip', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching income_vip data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_balancesheet_vip(period=None, fields=None):
     """获取资产负债表数据 - VIP接口"""
     params = {'period': period}
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('balancesheet_vip', **params)
+    try:
+        df = get_tushare_data('balancesheet_vip', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching balancesheet_vip data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_cashflow_vip(period=None, fields=None):
     """获取现金流量表数据 - VIP接口"""
     params = {'period': period}
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('cashflow_vip', **params)
+    try:
+        df = get_tushare_data('cashflow_vip', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching cashflow_vip data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_fina_indicator_vip(period=None, fields=None):
     """获取财务指标数据 - VIP接口"""
     params = {'period': period}
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('fina_indicator_vip', **params)
+    try:
+        df = get_tushare_data('fina_indicator_vip', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching fina_indicator_vip data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_fina_mainbz_vip(period=None, fields=None):
     """获取主营业务构成数据 - VIP接口"""
     params = {'period': period}
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('fina_mainbz_vip', **params)
+    try:
+        df = get_tushare_data('fina_mainbz_vip', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching fina_mainbz_vip data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_forecast_vip(period=None, fields=None):
     """获取业绩预告数据 - VIP接口"""
     params = {'period': period}
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('forecast_vip', **params)
+    try:
+        df = get_tushare_data('forecast_vip', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching forecast_vip data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_express_vip(period=None, fields=None):
     """获取业绩快报数据 - VIP接口"""
     params = {'period': period}
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('express_vip', **params)
+    try:
+        df = get_tushare_data('express_vip', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching express_vip data: {e}")
+        return pd.DataFrame(), 'error'
 
 def get_dividend(ann_date=None, ts_code=None, fields=None):
     """获取分红送股数据"""
@@ -187,18 +322,298 @@ def get_dividend(ann_date=None, ts_code=None, fields=None):
     if fields:
         params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
     # 注意：分红接口没有VIP版本，直接调用 dividend
-    return get_tushare_data('dividend', **params)
+    try:
+        df = get_tushare_data('dividend', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching dividend data: {e}")
+        return pd.DataFrame(), 'error'
 
-def get_fina_audit(period=None, ts_code=None, fields=None):
+def get_fina_audit(ts_code: str, **kwargs):
     """获取财务审计意见数据"""
+    params = {
+        'ts_code': ts_code
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('fina_audit', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching fina_audit data: {e}")
+        return pd.DataFrame(), 'error'
+
+
+# ===== 新增接口 - 按交易日遍历 (TradeDateArchiver) =====
+
+def get_block_trade(trade_date=None, ts_code=None, **kwargs):
+    """获取大宗交易数据"""
     params = {}
-    if period:
-        params['period'] = period
+    if trade_date:
+        params['trade_date'] = trade_date
     if ts_code:
         params['ts_code'] = ts_code
-    if fields:
-        params['fields'] = ','.join(fields) if isinstance(fields, list) else fields
-    return get_tushare_data('fina_audit', **params)
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('block_trade', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching block_trade data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_cyq_perf(trade_date=None, ts_code=None, **kwargs):
+    """获取每日筹码及胜率数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('cyq_perf', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching cyq_perf data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_cyq_chips(trade_date=None, ts_code=None, **kwargs):
+    """获取每日筹码分布数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('cyq_chips', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching cyq_chips data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_ah_price(trade_date=None, ts_code=None, **kwargs):
+    """获取AH股比价数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('ah_price', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching ah_price data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_stk_surv(trade_date=None, ts_code=None, **kwargs):
+    """获取机构调研数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('stk_surv', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching stk_surv data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_margin(trade_date=None, exchange_id=None, **kwargs):
+    """获取融资融券交易汇总数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if exchange_id:
+        params['exchange_id'] = exchange_id
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('margin', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching margin data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_margin_detail(trade_date=None, ts_code=None, **kwargs):
+    """获取融资融券交易明细数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('margin_detail', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching margin_detail data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_fz_trade(trade_date=None, ts_code=None, **kwargs):
+    """获取转融资交易汇总数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('fz_trade', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching fz_trade data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_moneyflow(trade_date=None, ts_code=None, **kwargs):
+    """获取个股资金流向数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('moneyflow', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching moneyflow data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_hsgt_top10(trade_date=None, ts_code=None, **kwargs):
+    """获取沪深港通资金流向数据"""
+    params = {}
+    if trade_date:
+        params['trade_date'] = trade_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('hsgt_top10', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching hsgt_top10 data: {e}")
+        return pd.DataFrame(), 'error'
+
+# ===== 新增接口 - 按公告日期/报告日期遍历 (DateArchiver) =====
+
+
+def get_index_classify(**kwargs):
+    """获取申万行业分类（分级）"""
+    params = {}
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('index_classify', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching index_classify data: {e}")
+        return pd.DataFrame(), 'error'
+
+
+def get_stk_holdertrade(ann_date=None, ts_code=None, **kwargs):
+    """获取股东增减持数据"""
+    params = {}
+    if ann_date:
+        params['ann_date'] = ann_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('stk_holdertrade', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching stk_holdertrade data: {e}")
+        return pd.DataFrame(), 'error'
+
+def get_report_rc(report_date=None, ts_code=None, **kwargs):
+    """获取券商盈利预测数据"""
+    params = {}
+    if report_date:
+        params['report_date'] = report_date
+    if ts_code:
+        params['ts_code'] = ts_code
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('report_rc', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching report_rc data: {e}")
+        return pd.DataFrame(), 'error'
+
+# ===== 新增接口 - 按股票代码遍历 (StockDrivenArchiver) =====
+
+def get_index_weight(index_code: str, trade_date: str, **kwargs):
+    """获取指数成分和权重"""
+    # Tushare接口对于月度数据，建议用当月的最后一天作为trade_date
+    params = {
+        'index_code': index_code,
+        'start_date': trade_date, # 使用同一个月末日期作为开始和结束
+        'end_date': trade_date
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('index_weight', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching index_weight for {index_code} on {trade_date}: {e}")
+        return pd.DataFrame(), 'error'
+
+
+def get_index_daily(ts_code: str, **kwargs):
+    """获取指数日线行情"""
+    params = {
+        'ts_code': ts_code
+    }
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('index_daily', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching index_daily for {ts_code}: {e}")
+        return pd.DataFrame(), 'error'
+
+
+def get_stk_holdernumber(ts_code=None, ann_date=None, **kwargs):
+    """获取股东人数数据"""
+    params = {}
+    if ts_code:
+        params['ts_code'] = ts_code
+    if ann_date:
+        params['ann_date'] = ann_date
+    params.update(kwargs)
+    try:
+        df = get_tushare_data('stk_holdernumber', **params)
+        return df, 'success'
+    except Exception as e:
+        print(f"Error fetching stk_holdernumber data: {e}")
+        return pd.DataFrame(), 'error'
+
+
+def get_index_basic(**kwargs):
+    """获取所有市场的指数基本信息"""
+    markets = ['MSCI', 'CSI', 'SSE', 'SZSE', 'CICC', 'SW', 'OTH']
+    all_indices = []
+    print("Fetching index basic info for all markets...")
+    for market in markets:
+        try:
+            print(f"  - Fetching from market: {market}")
+            df = get_tushare_data('index_basic', market=market, **kwargs)
+            if not df.empty:
+                all_indices.append(df)
+        except Exception as e:
+            print(f"Could not fetch data for market {market}: {e}")
+
+    if not all_indices:
+        print("Warning: No index data was fetched.")
+        return pd.DataFrame(), 'success' # Return success with empty df
+
+    full_df = pd.concat(all_indices, ignore_index=True).drop_duplicates(subset=['ts_code'])
+    print(f"Total unique indices fetched: {len(full_df)}")
+    return full_df, 'success'
+
+
+
+
 
 
 

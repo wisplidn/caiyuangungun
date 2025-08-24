@@ -6,11 +6,8 @@
 例如 dividend (分红送股) 等。
 """
 
-import json
 import time
 from datetime import datetime, timedelta
-
-import pandas as pd
 
 from base_archiver import BaseArchiver
 
@@ -18,41 +15,20 @@ from base_archiver import BaseArchiver
 class DateArchiver(BaseArchiver):
     """按业务日期进行数据归档"""
 
-    def _save_data_for_day(self, df: pd.DataFrame, date_obj: datetime):
-        """将单日数据保存到 Landing 层，按年月日分区"""
-        date_str = date_obj.strftime('%Y%m%d')
-        partition_path = self.landing_path / f"ann_date={date_str}"
-        partition_path.mkdir(parents=True, exist_ok=True)
-
-        # 仅当DataFrame非空时才保存数据文件
-        if not df.empty:
-            data_file = partition_path / "data.parquet"
-            df.to_parquet(data_file, compression='snappy', index=False)
-
-        # 总是创建元数据文件以标记此日期已处理
-        metadata = {
-            "partition_key": date_str,
-            "row_count": len(df),
-            "checksum": self._calculate_checksum(df),
-            "created_at": datetime.now().isoformat(),
-        }
-        with open(partition_path / "metadata.json", 'w') as f:
-            json.dump(metadata, f, indent=2)
+    def __init__(self, data_type: str, base_path: str = "./data", date_field: str = 'ann_date'):
+        super().__init__(data_type, base_path)
+        self.date_field = date_field
 
     def backfill(self, start_date_str: str = "20070101"):
-        """从指定日期开始，逐日回填历史数据，跳过已存在的日期"""
+        """从指定日期开始，逐日回填历史数据"""
         print(f"[{self.data_type.upper()}] Starting historical backfill from {start_date_str}...")
         start_date = datetime.strptime(start_date_str, '%Y%m%d')
-        end_date = datetime.combine((datetime.now() + timedelta(days=1)).date(), datetime.min.time()) # Process up to and including today
+        end_date = datetime.now() + timedelta(days=1)
         current_date = start_date
 
         while current_date < end_date:
             date_str = current_date.strftime('%Y%m%d')
-            partition_path = self.landing_path / f"ann_date={date_str}"
-            if (partition_path / "metadata.json").exists():
-                print(f"Date {date_str} already processed, skipping.")
-            else:
-                self._process_day(date_str, current_date)
+            self._process_day(date_str)
             current_date += timedelta(days=1)
         print("Historical backfill complete.")
 
@@ -60,11 +36,10 @@ class DateArchiver(BaseArchiver):
         """从上次成功的位置增量更新到昨天"""
         print(f"[{self.data_type.upper()}] Starting incremental update...")
 
-        # 通过扫描文件系统找到最后处理的日期
         processed_dates = []
         if self.landing_path.exists():
             for path in self.landing_path.iterdir():
-                if path.is_dir() and path.name.startswith('ann_date='):
+                if path.is_dir() and path.name.startswith(f'{self.date_field}='):
                     processed_dates.append(path.name.split('=')[1])
 
         if not processed_dates:
@@ -78,32 +53,30 @@ class DateArchiver(BaseArchiver):
         print(f"Incremental update from {start_date_str}...")
         self.backfill(start_date_str=start_date_str)
 
-    def _process_day(self, date_str: str, date_obj: datetime):
+    def _process_day(self, date_str: str):
         """处理单日数据的核心逻辑"""
         loop_start_time = time.time()
         print(f"Processing date: {date_str}...")
-        params = {'ann_date': date_str}
+        params = {self.date_field: date_str}
         ingest_date = datetime.now().strftime('%Y-%m-%d')
 
         try:
-            df, fetch_status = self.fetch_function(ann_date=date_str)
+            df, fetch_status = self.fetch_function(**{self.date_field: date_str})
 
             if fetch_status == 'error':
                 self._log_request(date_str, ingest_date, params, 0, "error", "error", f"API fetch failed for {date_str}")
                 return
 
-            # If API call is successful, always save metadata to mark the day as processed
-            self._save_data_for_day(df, date_obj)
+            partition_path = self.landing_path / f"{self.date_field}={date_str}"
+            write_status = self._save_partitioned_data(df, partition_path, date_str)
 
-            # Log the result to the database
-            checksum = self._calculate_checksum(df)
-            log_status = 'no_data' if df.empty else 'success'
-            self._log_request(date_str, ingest_date, params, len(df), checksum, log_status)
+            log_status = 'no_data' if df.empty else write_status
+            self._log_request(date_str, ingest_date, params, len(df), self._calculate_checksum(df), log_status)
 
         except Exception as e:
             self._log_request(date_str, ingest_date, params, 0, "error", "error", str(e))
             print(f"Error processing data for {date_str}: {e}")
-        
+
         loop_duration = time.time() - loop_start_time
         print(f"Finished processing for {date_str} in {loop_duration:.2f}s.")
 

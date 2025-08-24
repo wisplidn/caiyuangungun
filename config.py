@@ -2,6 +2,42 @@
 配置文件 - Income数据ETL系统
 """
 
+
+# --- Centralized List of Common Indexes ---
+# This list is shared by IndexMonthlyArchiver and StockDrivenArchiver (for index_daily)
+COMMON_INDEXES = [
+    '000001.SH', # 上证指数
+    '000300.SH', # 沪深300
+    '000905.SH', # 中证500
+    '000016.SH', # 上证50
+    '399001.SZ', # 深证成指
+    '399006.SZ', # 创业板指
+    '000688.SH', # 科创50
+    '399106.SZ', # 深证综指
+    '000852.SH', # 中证1000
+    '399295.SZ', # 创成长
+    'hsi.hi',    # 恒生指数
+    'hstech.hi', # 恒生科技
+    '000932.SH', # 中证消费
+    '000991.SH', # 全指医药
+    '399986.SZ', # CS新能车
+    '000922.SH', # 中证红利
+    '399971.SZ', # CS传媒
+    '000827.SH', # 中证环保
+    '000934.SH', # 中证金融
+    '000993.SH', # 全指信息
+    '399967.SZ', # 中证军工
+    '000811.SH', # 全指可选
+    '000992.SH', # 全指消费
+    '000989.SH', # 全指材料
+    '000990.SH', # 全指工业
+    '000994.SH', # 全指能源
+    '399804.SZ', # CS智汽车
+    '931188.CSI',# CS AI
+    '930713.CSI',# 中证动漫
+    '930647.CSI' # 中证白酒
+]
+
 import os
 from pathlib import Path
 

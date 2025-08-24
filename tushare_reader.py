@@ -26,14 +26,27 @@ class TushareReader:
             return []
         return sorted([p.name for p in self.landing_path.iterdir() if p.is_dir()])
 
-    def _get_metadata(self, partition_path: Path) -> dict:
-        """安全地读取分区或其最新版本的元数据"""
-        metadata_path = partition_path / "metadata.json"
-        if not metadata_path.exists() and partition_path.name.startswith('period='):
-            versions = sorted([v.name for v in partition_path.iterdir() if v.is_dir() and v.name.startswith('ingest_date=')])
-            if versions:
-                metadata_path = partition_path / versions[-1] / "metadata.json"
+    def read_latest_data(self, partition_name: str) -> pd.DataFrame:
+        """读取指定分区的最新版本数据"""
+        partition_path = self.landing_path / partition_name
+        data_file = partition_path / "data.parquet"
+        if data_file.exists():
+            return pd.read_parquet(data_file)
+        return pd.DataFrame()
 
+    def read_all_latest(self) -> pd.DataFrame:
+        """读取所有分区的最新数据并合并"""
+        all_data = []
+        for partition in self.get_partitions():
+            df = self.read_latest_data(partition)
+            if not df.empty:
+                all_data.append(df)
+
+        return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+
+    def _get_metadata(self, partition_path: Path) -> dict:
+        """安全地读取分区的元数据"""
+        metadata_path = partition_path / "metadata.json"
         if metadata_path.exists():
             with open(metadata_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -47,17 +60,18 @@ class TushareReader:
             part_path = self.landing_path / part_name
             metadata = self._get_metadata(part_path)
 
-            version_count = "N/A"
-            if part_name.startswith('period='):
-                versions = [v for v in part_path.iterdir() if v.is_dir() and v.name.startswith('ingest_date=')]
-                version_count = len(versions)
+            # Count archived versions
+            archive_partition_path = self.base_path / "raw" / "archive" / "tushare" / self.data_type / part_name
+            version_count = 0
+            if archive_partition_path.exists():
+                version_count = len([f for f in archive_partition_path.glob('data_*.parquet')])
 
             summary_data.append({
                 'partition': metadata.get('partition_key', part_name.split('=')[-1]),
-                'version_count': version_count,
+                'archived_versions': version_count,
                 'row_count': metadata.get('row_count', 0),
                 'checksum': metadata.get('checksum', 'N/A'),
-                'last_updated': metadata.get('created_at', 'N/A'),
+                'last_updated': metadata.get('updated_at', 'N/A'),
             })
         return pd.DataFrame(summary_data)
 
