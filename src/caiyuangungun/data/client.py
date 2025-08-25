@@ -105,19 +105,6 @@ def get_hk_hold(trade_date: str, **kwargs):
         print(f"Error fetching hk_hold data: {e}")
         return pd.DataFrame(), 'error'
 
-def get_pledge_stat(end_date: str, **kwargs):
-    """获取股权质押统计数据"""
-    params = {
-        'end_date': end_date
-    }
-    params.update(kwargs)
-    try:
-        df = get_tushare_data('pledge_stat', **params)
-        return df, 'success'
-    except Exception as e:
-        print(f"Error fetching pledge_stat data: {e}")
-        return pd.DataFrame(), 'error'
-
 def get_stk_managers(ts_code: str, **kwargs):
     """获取上市公司管理层"""
     params = {
