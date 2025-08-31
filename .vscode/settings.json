@@ -1,3 +1,4 @@
 {
-    "python.defaultInterpreterPath": "/Users/daishun/opt/anaconda3/envs/python13/bin/python"
+    "python.defaultInterpreterPath": "/Users/daishun/opt/anaconda3/envs/qlib_env/bin/python",
+    "python.terminal.activateEnvironment": true
 }

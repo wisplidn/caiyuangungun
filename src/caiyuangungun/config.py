@@ -51,12 +51,18 @@ MAX_REQUESTS_PER_MINUTE = 150
 # 数据存储路径
 RAW_LANDING_PATH = Path(BASE_DATA_PATH) / "raw" / "landing" / "tushare"
 RAW_NORM_PATH = Path(BASE_DATA_PATH) / "raw" / "norm" / "tushare"
+INTERIM_PATH = Path(BASE_DATA_PATH) / "interim"  # 中间处理层，与raw、qlib平级
+QUOTES_DAY_PATH = INTERIM_PATH / "quotes_day"    # 日频交易数据
 LOG_PATH = Path(BASE_DATA_PATH) / "logs"
 
 # ETL配置
 HISTORICAL_START_YEAR = 2006
 HISTORICAL_START_QUARTER = 1
 DEFAULT_LOOKBACK_QUARTERS = 12
+
+# 清洗处理配置
+CLEANING_START_DATE = "20170101"  # 清洗处理起始日期
+CLEANING_BATCH_SIZE = 100         # 批处理大小（天数）
 
 # 文件格式配置
 PARQUET_COMPRESSION = 'snappy'

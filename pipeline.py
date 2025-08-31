@@ -25,18 +25,18 @@ python pipeline.py --mode quality_check
 """
 
 import argparse
-from caiyuangungun.data.manifest import DATA_ASSETS
+from caiyuangungun.data.raw.manifest import DATA_ASSETS
 from caiyuangungun.config import COMMON_INDEXES
 
 # 导入所有归档器
-from caiyuangungun.data.archivers.period_archiver import PeriodArchiver
-from caiyuangungun.data.archivers.date_archiver import DateArchiver
-from caiyuangungun.data.archivers.snapshot_archiver import SnapshotArchiver
-from caiyuangungun.data.archivers.trade_date_archiver import TradeDateArchiver
-from caiyuangungun.data.archivers.stock_driven_archiver import StockDrivenArchiver
-from caiyuangungun.data.archivers.index_monthly_archiver import IndexMonthlyArchiver
+from caiyuangungun.data.raw.archivers.period_archiver import PeriodArchiver
+from caiyuangungun.data.raw.archivers.date_archiver import DateArchiver
+from caiyuangungun.data.raw.archivers.snapshot_archiver import SnapshotArchiver
+from caiyuangungun.data.raw.archivers.trade_date_archiver import TradeDateArchiver
+from caiyuangungun.data.raw.archivers.stock_driven_archiver import StockDrivenArchiver
+from caiyuangungun.data.raw.archivers.index_monthly_archiver import IndexMonthlyArchiver
 
-from caiyuangungun.data.archivers.date_range_archiver import DateRangeArchiver
+from caiyuangungun.data.raw.archivers.date_range_archiver import DateRangeArchiver
 
 ARCHIVER_MAP = {
     'period': PeriodArchiver,
@@ -142,7 +142,7 @@ def run_update_pipeline():
 
     print("\n--- Incremental Update Pipeline Complete ---")
 
-from caiyuangungun.data.quality_checker import QualityChecker
+from caiyuangungun.data.raw.quality_checker import QualityChecker
 
 def _run_targeted_refetch(failures: list):
     """对质量检查失败的特定分区执行一次定向重新获取。"""

@@ -1,0 +1,21 @@
+# Qlib and its core dependencies
+pyqlib
+torch
+numpy
+cython
+lightgbm
+
+# Tushare for data fetching
+tushare
+
+# Common data science and utility libraries
+pandas
+pyarrow
+scikit-learn
+jupyter
+matplotlib
+seaborn
+
+# Factor analysis tools
+alphalens-reloaded
+
