@@ -24,6 +24,13 @@ class InterfaceType(Enum):
     REF = "ref"                       # 参考数据
 
 
+class DataSource(Enum):
+    """数据源类型"""
+    TUSHARE = "tushare"
+    AKSHARE = "akshare"
+    OTHER = "other"
+
+
 class DedupeStrategy(Enum):
     """去重策略"""
     KEEP_LATEST_UPDATE = "keep_latest_update"     # 保留最新更新

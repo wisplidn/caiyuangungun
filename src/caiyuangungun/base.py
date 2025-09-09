@@ -12,7 +12,7 @@ from datetime import datetime, date
 from abc import ABC, abstractmethod
 import logging
 
-from .contracts import DataContract, DataLayer, InterfaceType, DEFAULT_CONTRACT
+from .contracts import DataContract, DataLayer, InterfaceType, DEFAULT_CONTRACT, DataSource
 
 
 class BaseDataManager(ABC):
@@ -130,6 +130,15 @@ class RawDataManager(BaseDataManager):
 class NormDataManager(BaseDataManager):
     """Norm层数据管理器 - 接口级规范化"""
     
+    # 统一将传入的来源标识（DataSource 或 str）转成用于文件名前缀的字符串
+    @staticmethod
+    def _source_prefix(source: Optional[Union[str, DataSource]]) -> str:
+        if source is None:
+            return ""
+        if isinstance(source, DataSource):
+            return f"{source.name.lower()}_"
+        return f"{str(source).lower()}_"
+    
     def __init__(self, data_root: Union[str, Path], contract: DataContract = None):
         super().__init__(data_root, contract)
         self.norm_path = self.data_root / "norm"
@@ -137,26 +146,35 @@ class NormDataManager(BaseDataManager):
     def get_data_path(self, 
                       interface_type: InterfaceType,
                       partition: Optional[str] = None,
+                      source: Optional[Union[str, DataSource]] = None,
                       **kwargs) -> Path:
-        """获取Norm层数据路径"""
+        """获取Norm层数据路径
+        命名支持：
+        - 默认：by_interface/<interface>.csv
+        - 分区：by_interface/<interface>/<partition>.csv
+        - 带来源：在文件名追加前缀“<source>_”，即 <source>_<interface>.csv 或 <source>_<partition>.csv
+        """
         base_path = self.norm_path / "by_interface" / interface_type.value
+        prefix = self._source_prefix(source)
         
         if partition:
-            return base_path / f"{partition}.csv"
+            return base_path / f"{prefix}{partition}.csv"
         else:
-            return base_path / f"{interface_type.value}.csv"
+            return base_path / f"{prefix}{interface_type.value}.csv"
     
-    def get_schema_path(self, interface_type: InterfaceType) -> Path:
-        """获取Schema文件路径"""
-        return self.norm_path / "schemas" / f"{interface_type.value}_schema.json"
+    def get_schema_path(self, interface_type: InterfaceType, source: Optional[Union[str, DataSource]] = None) -> Path:
+        """获取Schema文件路径，按需带来源前缀"""
+        prefix = self._source_prefix(source)
+        return self.norm_path / "schemas" / f"{prefix}{interface_type.value}_schema.json"
     
-    def get_decisions_path(self, interface_type: InterfaceType) -> Path:
-        """获取决策记录文件路径"""
-        return self.norm_path / "decisions" / f"{interface_type.value}_decisions.jsonl"
+    def get_decisions_path(self, interface_type: InterfaceType, source: Optional[Union[str, DataSource]] = None) -> Path:
+        """获取决策记录文件路径，按需带来源前缀"""
+        prefix = self._source_prefix(source)
+        return self.norm_path / "decisions" / f"{prefix}{interface_type.value}_decisions.jsonl"
     
-    def save_schema(self, interface_type: InterfaceType, schema: Dict[str, Any]) -> Path:
+    def save_schema(self, interface_type: InterfaceType, schema: Dict[str, Any], source: Optional[Union[str, DataSource]] = None) -> Path:
         """保存数据Schema"""
-        schema_path = self.get_schema_path(interface_type)
+        schema_path = self.get_schema_path(interface_type, source)
         schema_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(schema_path, 'w', encoding='utf-8') as f:
@@ -166,9 +184,10 @@ class NormDataManager(BaseDataManager):
     
     def save_decisions(self, 
                        interface_type: InterfaceType, 
-                       decisions: List[Dict[str, Any]]) -> Path:
+                       decisions: List[Dict[str, Any]],
+                       source: Optional[Union[str, DataSource]] = None) -> Path:
         """保存去重/合并决策记录"""
-        decisions_path = self.get_decisions_path(interface_type)
+        decisions_path = self.get_decisions_path(interface_type, source)
         decisions_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(decisions_path, 'a', encoding='utf-8') as f:
@@ -182,9 +201,10 @@ class NormDataManager(BaseDataManager):
                   interface_type: InterfaceType,
                   partition: Optional[str] = None,
                   decisions: Optional[List[Dict[str, Any]]] = None,
+                  source: Optional[Union[str, DataSource]] = None,
                   **kwargs) -> Path:
-        """保存Norm层数据为CSV格式"""
-        file_path = self.get_data_path(interface_type, partition, **kwargs)
+        """保存Norm层数据为CSV格式；当传入source时采用“来源_原成分”命名。"""
+        file_path = self.get_data_path(interface_type, partition, source=source, **kwargs)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
         # 保存CSV
@@ -197,13 +217,14 @@ class NormDataManager(BaseDataManager):
             "primary_keys": self.contract.primary_keys.get(interface_type, []),
             "row_count": len(data),
             "created_at": datetime.now().isoformat(),
-            "partition": partition
+            "partition": partition,
+            "source": source.name.lower() if isinstance(source, DataSource) else (str(source).lower() if source else None),
         }
-        self.save_schema(interface_type, schema)
+        self.save_schema(interface_type, schema, source=source)
         
         # 保存决策记录
         if decisions:
-            self.save_decisions(interface_type, decisions)
+            self.save_decisions(interface_type, decisions, source=source)
         
         self.logger.info(f"Saved {len(data)} rows to {file_path}")
         return file_path
@@ -211,9 +232,10 @@ class NormDataManager(BaseDataManager):
     def load_data(self, 
                   interface_type: InterfaceType,
                   partition: Optional[str] = None,
+                  source: Optional[Union[str, DataSource]] = None,
                   **kwargs) -> pd.DataFrame:
-        """加载Norm层数据"""
-        file_path = self.get_data_path(interface_type, partition, **kwargs)
+        """加载Norm层数据，支持按来源前缀命名加载"""
+        file_path = self.get_data_path(interface_type, partition, source=source, **kwargs)
         
         if not file_path.exists():
             self.logger.warning(f"File not found: {file_path}")
