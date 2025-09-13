@@ -1,0 +1,60 @@
+{
+  "endpoint_limits": {
+    "stock_basic": {
+      "limitmax": 5429,
+      "updated_at": "2025-09-10T19:45:40.782735"
+    },
+    "trade_cal": {
+      "limitmax": 9497,
+      "updated_at": "2025-09-07T17:15:17.089601"
+    },
+    "daily": {
+      "limitmax": 5424,
+      "updated_at": "2025-09-12T19:44:52.844728"
+    },
+    "adj_factor": {
+      "limitmax": 5452,
+      "updated_at": "2025-09-07T23:29:06.160123"
+    },
+    "daily_basic": {
+      "limitmax": 5424,
+      "updated_at": "2025-09-12T19:44:57.442556"
+    },
+    "monthly_income": {
+      "limitmax": 9000,
+      "updated_at": "2025-09-07T17:13:54.670192"
+    },
+    "monthly_balancesheet": {
+      "limitmax": 7000,
+      "updated_at": "2025-09-07T17:14:15.774726"
+    },
+    "monthly_cashflow": {
+      "limitmax": 6400,
+      "updated_at": "2025-09-07T17:14:52.255187"
+    },
+    "income_y": {
+      "limitmax": 9000,
+      "updated_at": "2025-09-07T20:48:20.386427"
+    },
+    "income_q": {
+      "limitmax": 9000,
+      "updated_at": "2025-09-07T20:48:35.503320"
+    },
+    "balancesheet_y": {
+      "limitmax": 7000,
+      "updated_at": "2025-09-07T20:48:51.657077"
+    },
+    "cashflow_y": {
+      "limitmax": 6400,
+      "updated_at": "2025-09-07T20:49:27.265409"
+    },
+    "cashflow_q": {
+      "limitmax": 6400,
+      "updated_at": "2025-09-07T20:49:52.371033"
+    },
+    "balancesheet": {
+      "limitmax": 7000,
+      "updated_at": "2025-09-07T21:07:35.741377"
+    }
+  }
+}

@@ -127,5 +127,5 @@ cython_debug/
 Thumbs.db
 
 # Data files - IMPORTANT
-data/
+/data/
 

@@ -1,0 +1,208 @@
+{
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "username": "root",
+    "password": "kitty123",
+    "database": "caiyuangungun",
+    "charset": "utf8mb4",
+    "enabled": true
+  },
+  "data_sources": {
+    "tushare": {
+      "name": "tushare",
+      "source_type": "tushare",
+      "enabled": true,
+      "class_path": "caiyuangungun.data.raw.sources.tushare_source.TushareDataSource",
+      "connection_params": {
+        "token": "q90f4bdab293fe80b426887ee2afa2d3182",
+        "max_requests_per_minute": 300,
+        "timeout": 30,
+        "retry_count": 3
+      },
+      "description": "Tushare Pro数据源配置",
+      "health_check": {
+        "enabled": true,
+        "endpoint": "stock_basic",
+        "timeout": 10
+      },
+      "data_definitions": {
+        "stock_basic": {
+            "data_source": "tushare",
+            "method": "stock_basic",
+            "description": "获取基础信息数据",
+            "storage_type": "SNAPSHOT",
+            "required_params": [],
+            "start_date": "20100101",
+            "lookback_periods": 1
+            },
+        "trade_cal": {
+            "data_source": "tushare",
+            "method": "trade_cal",
+            "description": "获取交易日历数据",
+            "storage_type": "SNAPSHOT",
+            "required_params": {
+                "start_date": "20000101",
+                "end_date": "20990101"
+            },
+            "start_date": "20000101",
+            "lookback_periods": 1
+            },
+        "daily": {
+            "data_source": "tushare",
+            "method": "daily",
+            "description": "获取A股日线行情",
+            "storage_type": "DAILY",
+            "required_params": {
+                "trade_date": "<TRADE_DATE>"
+            },
+            "start_date": "20100101",
+            "lookback_periods": 90
+            },
+        "adj_factor": {
+            "data_source": "tushare",
+            "method": "adj_factor",
+            "description": "获取复权因子",
+            "storage_type": "DAILY",
+            "required_params": {
+                "trade_date": "<TRADE_DATE>"
+            },
+            "start_date": "20100101",
+            "lookback_periods": 90
+            },
+        "daily_basic": {
+            "data_source": "tushare",
+            "method": "daily_basic",
+            "description": "获取每日指标",
+            "storage_type": "DAILY",
+            "required_params": {
+                "trade_date": "<TRADE_DATE>"
+            },
+            "start_date": "20100101",
+            "lookback_periods": 90
+            },
+        "income_y": {
+            "data_source": "tushare",
+            "method": "income_vip",
+            "description": "获取上市公司年累利润表",
+            "storage_type": "MONTHLY",
+            "required_params": {
+                "monthly_date": "<MONTHLY_DATE>",
+                "report_type": "1"
+            },
+            "start_date": "201001",
+            "lookback_periods": 12
+            },
+        "income_q": {
+            "data_source": "tushare",
+            "method": "income_vip",
+            "description": "获取上市公司单季利润表",
+            "storage_type": "MONTHLY",
+            "required_params": {
+                "monthly_date": "<MONTHLY_DATE>",
+                "report_type": "2"
+            },
+            "start_date": "201001",
+            "lookback_periods": 12
+            },
+        "balancesheet": {
+            "data_source": "tushare",
+            "method": "balancesheet_vip",
+            "description": "获取上市公司资产负债表",
+            "storage_type": "MONTHLY",
+            "required_params": {
+                "monthly_date": "<MONTHLY_DATE>"
+            },
+            "start_date": "201001",
+            "lookback_periods": 12
+            },
+        "cashflow_y": {
+            "data_source": "tushare",
+            "method": "cashflow_vip",
+            "description": "获取上市公司年累现金流量表",
+            "storage_type": "MONTHLY",
+            "required_params": {
+                "monthly_date": "<MONTHLY_DATE>",
+                "report_type": "1"
+            },
+            "start_date": "201001",
+            "lookback_periods": 12
+            },
+        "cashflow_q": {
+            "data_source": "tushare",
+            "method": "cashflow_vip",
+            "description": "获取上市公司单季现金流量表",
+            "storage_type": "MONTHLY",
+            "required_params": {
+                "monthly_date": "<MONTHLY_DATE>",
+                "report_type": "2"
+            },
+            "start_date": "201001",
+            "lookback_periods": 12
+            }
+      }
+    },
+    "akshare": {
+      "name": "akshare",
+      "source_type": "akshare",
+      "enabled": true,
+      "class_path": "caiyuangungun.data.raw.sources.akshare_source.AkshareDataSource",
+      "connection_params": {
+        "timeout": 30,
+        "retry_count": 3
+      },
+      "description": "AkShare数据源配置",
+      "health_check": {
+        "enabled": true,
+        "endpoint": "stock_lrb_em",
+        "timeout": 10
+      },
+      "data_definitions": {
+        "stock_lrb_em": {
+          "data_source": "akshare",
+          "method": "stock_lrb_em",
+          "description": "获取东财利润表数据",
+          "storage_type": "QUARTERLY",
+          "required_params": {
+            "date": "<QUARTERLY_DATE>"
+          },
+          "start_date": "20081231",
+          "lookback_periods": 4
+        },
+        "stock_zcfz_em": {
+          "data_source": "akshare",
+          "method": "stock_zcfz_em",
+          "description": "获取东财资产负债表数据-沪深",
+          "storage_type": "QUARTERLY",
+          "required_params": {
+            "date": "<QUARTERLY_DATE>"
+          },
+          "start_date": "20081231",
+          "lookback_periods": 4
+        },
+        "stock_zcfz_bj_em": {
+          "data_source": "akshare",
+          "method": "stock_zcfz_bj_em",
+          "description": "获取东财资产负债表数据-北交所",
+          "storage_type": "QUARTERLY",
+          "required_params": {
+            "date": "<QUARTERLY_DATE>"
+          },
+          "start_date": "20081231",
+          "lookback_periods": 4
+        },
+        "stock_xjll_em": {
+          "data_source": "akshare",
+          "method": "stock_xjll_em",
+          "description": "获取东财现金流量表数据",
+          "storage_type": "QUARTERLY",
+          "required_params": {
+            "date": "<QUARTERLY_DATE>"
+          },
+          "start_date": "20081231",
+          "lookback_periods": 4
+        }
+      }
+    }
+  }
+}
