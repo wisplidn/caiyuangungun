@@ -22,7 +22,7 @@
         "description": "交易日归档",
         "path_pattern": "{source_name}/{data_type}/{year_month}/{day}",
         "validation_rules": {
-          "required_fields": ["source_name", "data_type", "archive_type", "daily_date"]
+          "required_fields": ["source_name", "data_type", "archive_type", "date"]
         },
         "enabled": true
       },
@@ -31,7 +31,7 @@
         "description": "月度归档",
         "path_pattern": "{source_name}/{data_type}/{year_month}",
         "validation_rules": {
-          "required_fields": ["source_name", "data_type", "archive_type", "monthly_date"]
+          "required_fields": ["source_name", "data_type", "archive_type", "date"]
         },
         "enabled": true
       },
@@ -40,14 +40,23 @@
         "description": "季报归档",
         "path_pattern": "{source_name}/{data_type}/{year_quarter}",
         "validation_rules": {
-          "required_fields": ["source_name", "data_type", "archive_type", "quarterly_date"]
+          "required_fields": ["source_name", "data_type", "archive_type", "date"]
+        },
+        "enabled": true
+      },
+      "symbol": {
+        "value": "symbol",
+        "description": "股票代码归档",
+        "path_pattern": "{source_name}/{data_type}/{symbol}",
+        "validation_rules": {
+          "required_fields": ["source_name", "data_type", "archive_type", "symbol"]
         },
         "enabled": true
       }
     },
     "file_config": {
       "filename_template": "data.{file_type}",
-      "supported_formats": ["parquet", "json"],
+      "supported_formats": ["parquet", "json", "csv"],
       "default_format": "parquet"
     },
 

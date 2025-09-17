@@ -2,15 +2,12 @@
 
 提供AkShare库的数据获取功能，支持东方财富等多个数据源的股票数据。
 实现了BaseDataSource接口，提供统一的数据访问方式。
-基于JSON配置文件自动生成接口调用，支持字段验证和quarterly_date自动转换。
 """
 
 import pandas as pd
-from typing import List, Dict, Any, Optional, Union
-from datetime import datetime, date
+from typing import Dict, Any
 import logging
 import time
-import re
 from dataclasses import dataclass
 
 try:
@@ -18,88 +15,78 @@ try:
 except ImportError:
     raise ImportError("请安装akshare包以使用akshare数据源")
 
-# 使用绝对导入避免相对导入问题
-import sys
-from pathlib import Path
-import importlib.util
-
-# 动态导入BaseDataSource
-base_data_source_path = Path(__file__).parent.parent / 'core' / 'base_data_source.py'
-if base_data_source_path.exists():
-    spec = importlib.util.spec_from_file_location("base_data_source", str(base_data_source_path))
-    base_data_source_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(base_data_source_module)
-    BaseDataSource = base_data_source_module.BaseDataSource
-else:
-    # 如果找不到BaseDataSource，创建一个简单的基类
-    class BaseDataSource:
-        def __init__(self):
-            pass
-        def connect(self):
-            return True
-        def disconnect(self):
-            pass
-        def is_connected(self):
-            return True
-        def fetch_data(self, **kwargs):
-            raise NotImplementedError
-
-# 动态导入ConfigManager
-config_manager_path = Path(__file__).parent.parent / 'core' / 'config_manager.py'
-if config_manager_path.exists():
-    spec = importlib.util.spec_from_file_location("config_manager", str(config_manager_path))
-    config_manager_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(config_manager_module)
-    ConfigManager = config_manager_module.ConfigManager
-else:
-    raise ImportError("找不到config_manager.py文件")
-
-# 动态导入UniversalArchiver
-universal_archiver_path = Path(__file__).parent.parent / 'core' / 'universal_archiver.py'
-if universal_archiver_path.exists():
-    spec = importlib.util.spec_from_file_location("universal_archiver", str(universal_archiver_path))
-    universal_archiver_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(universal_archiver_module)
-    UniversalArchiver = universal_archiver_module.UniversalArchiver
-else:
-    UniversalArchiver = None
+try:
+    from core.base_data_source import BaseDataSource, DataSourceConfig, ConfigDTO, DataSourceValidationError
+except ImportError:
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).parent.parent
+    sys.path.insert(0, str(project_root / 'core'))
+    from base_data_source import BaseDataSource, DataSourceConfig, ConfigDTO, DataSourceValidationError
 
 
 class AkshareDataSource(BaseDataSource):
     """AkShare数据源实现
     
-    提供AkShare库的数据获取功能。
-    基于JSON配置文件自动生成接口调用。
+    提供AkShare库的数据获取功能，支持多种股票数据的获取。
     """
     
-    def __init__(self, config_name: str = "akshare"):
+    def __init__(self, config: DataSourceConfig):
         """初始化AkShare数据源
         
         Args:
-            config_name: 配置名称，用于从配置管理器加载配置
+            config: 数据源配置对象
         """
-        # 保存ConfigManager实例
-        self.config_manager = ConfigManager()
+        super().__init__(config)
+        self.logger = logging.getLogger(__name__)
         
-        # 从ConfigManager加载akshare数据源配置
-        akshare_config = self.config_manager.get_data_source_config('akshare')
-        if not akshare_config:
-            raise ValueError(f"未找到akshare数据源配置")
+        # 使用转换后的配置
+        akshare_config = self._source_config
+        self.timeout = akshare_config.timeout
+        self.max_requests_per_minute = akshare_config.max_requests_per_minute
+        self.retry_count = akshare_config.retry_count
+        self.retry_delay = akshare_config.retry_delay
+        self._last_request_time = 0
+        self._request_count = 0
+        self._request_window_start = 0
         
-        # 保存完整配置数据用于API端点配置
-        self._config_data = akshare_config
-        
-        # 初始化通用归档器
-        if UniversalArchiver:
-            self.archiver = UniversalArchiver(source_name='akshare')
-        else:
-            self.archiver = None
-        
-        # 设置日志
-        self.logger = logging.getLogger(f"{__name__}.AkshareDataSource")
-        
-        # 连接状态
         self._connected = False
+        self.logger.info("AkShare数据源初始化完成")
+    
+    def _validate_source_config(self, source_config: ConfigDTO) -> None:
+        """验证AkShare配置
+        
+        Args:
+            source_config: AkShare配置对象
+            
+        Raises:
+            DataSourceValidationError: 当配置验证失败时
+        """
+        if not isinstance(source_config, ConfigDTO):
+            raise DataSourceValidationError("AkShare配置必须是ConfigDTO类型")
+            
+        if source_config.retry_count < 0:
+            raise DataSourceValidationError("重试次数不能为负数")
+            
+        if source_config.retry_delay < 0:
+            raise DataSourceValidationError("重试延迟不能为负数")
+    
+    def _convert_config(self, config: DataSourceConfig) -> ConfigDTO:
+        """将通用配置转换为AkShare配置
+        
+        Args:
+            config: 通用数据源配置
+            
+        Returns:
+            ConfigDTO: AkShare配置对象
+        """
+        connection_params = config.connection_params or {}
+        return ConfigDTO(
+            timeout=connection_params.get('timeout', 30),
+            max_requests_per_minute=connection_params.get('max_requests_per_minute', 60),
+            retry_count=connection_params.get('retry_count', 3),
+            retry_delay=connection_params.get('retry_delay', 1.0)
+        )
     
     def connect(self) -> bool:
         """建立AkShare连接
@@ -137,208 +124,97 @@ class AkshareDataSource(BaseDataSource):
         """
         return self._connected
     
-    def fetch_data(self, data_type: str, **kwargs) -> pd.DataFrame:
-        """基于配置获取数据的通用方法
+    def fetch_data(self, endpoint: str, **params) -> pd.DataFrame:
+        """获取指定类型的数据
         
         Args:
-            data_type: 数据类型，对应配置中的data_definitions键
-            **kwargs: 请求参数
+            endpoint: 数据类型，如 'stock_zh_a_spot_em', 'stock_zh_a_hist'
+            **params: 传递给akshare函数的参数
             
         Returns:
             pd.DataFrame: 获取的数据
             
         Raises:
-            ValueError: 当数据类型不存在或参数无效时
-            RuntimeError: 当数据源未连接或获取数据失败时
+            RuntimeError: 当获取数据失败时
+            DataSourceValidationError: 当参数验证失败时
         """
+        # 调用父类验证
+        super()._validate_fetch_params(endpoint, **params)
+        
+        # AkShare特定验证
+        self._validate_akshare_params(endpoint, **params)
+        
         if not self.is_connected():
-            raise RuntimeError("数据源未连接，请先调用connect()方法")
+            raise RuntimeError("数据源未连接")
         
-        # 获取数据定义配置
-        data_definitions = self._config_data.get('data_definitions', {})
-        if data_type not in data_definitions:
-            raise ValueError(f"未找到数据类型 '{data_type}' 的配置")
+        # 频率限制检查
+        self._check_rate_limit()
         
-        data_config = data_definitions[data_type]
-        method_name = data_config.get('method')
-        if not method_name:
-            raise ValueError(f"数据类型 '{data_type}' 缺少method配置")
-        
-        # 处理请求参数
-        processed_params = self.config_manager.process_request_params(
-            data_config.get('required_params', {}), 
-            **kwargs
-        )
-        
-        # 验证参数
-        self._validate_params(processed_params, data_config.get('field_validation', {}))
-        
-        try:
-            # 调用akshare方法
-            akshare_method = getattr(ak, method_name)
-            self.logger.info(f"调用 ak.{method_name} 获取 {data_type} 数据，参数: {processed_params}")
-            
-            data = akshare_method(**processed_params)
-            
-            if data is None or (isinstance(data, pd.DataFrame) and data.empty):
-                self.logger.warning(f"获取到空数据: {data_type}")
-                return pd.DataFrame()
-            
-            self.logger.info(f"成功获取 {data_type} 数据，行数: {len(data)}")
-            
-            # 使用通用归档器保存数据
-            if self.archiver:
-                # 从配置中获取存储类型
-                data_config = self._config_data.get('data_definitions', {}).get(data_type, {})
-                archive_type = data_config.get('storage_type', 'SNAPSHOT')
-                
-                # 为归档准备参数，确保参数名与路径生成器期望的一致
-                archive_kwargs = kwargs.copy()
-                # 特殊处理：对于东财财报数据，将date转换为quarterly_date
-                financial_report_types = ['stock_lrb_em', 'stock_zcfz_em', 'stock_zcfz_bj_em', 'stock_xjll_em']
-                if data_type in financial_report_types and 'date' in archive_kwargs:
-                    archive_kwargs['quarterly_date'] = archive_kwargs.pop('date')
-                
-                self.archiver.archive_data(
-                    data=data,
-                    source_name='akshare',
-                    data_type=data_type,
-                    archive_type=archive_type,
-                    **archive_kwargs
-                )
-            
-            return data
-            
-        except Exception as e:
-            self.logger.error(f"获取 {data_type} 数据失败: {e}")
-            raise RuntimeError(f"获取 {data_type} 数据失败: {e}")
+        # 重试机制（指数退避）
+        for attempt in range(self.retry_count):
+            try:
+                # 调用akshare方法
+                if hasattr(ak, endpoint):
+                    method = getattr(ak, endpoint)
+                    data = method(**params)
+                    
+                    # 更新请求计数
+                    self._update_request_count()
+                    
+                    self.logger.info(f"成功获取 {endpoint} 数据，形状: {data.shape}")
+                    return data
+                else:
+                    raise ValueError(f"AkShare中不存在方法: {endpoint}")
+                    
+            except Exception as e:
+                self.logger.warning(f"第 {attempt + 1} 次尝试获取 {endpoint} 数据失败: {e}")
+                if attempt < self.retry_count - 1:
+                    # 指数退避策略
+                    delay = self.retry_delay * (2 ** attempt)
+                    time.sleep(delay)
+                else:
+                    self.logger.error(f"获取 {endpoint} 数据失败，已重试 {self.retry_count} 次")
+                    raise RuntimeError(f"获取 {endpoint} 数据失败: {e}")
     
-    def get_api_config(self, data_type: str) -> Dict[str, Any]:
-        """获取指定数据类型的API配置
+    def _validate_akshare_params(self, endpoint: str, **params) -> None:
+        """验证AkShare特定参数
         
         Args:
-            data_type: 数据类型名称
-            
-        Returns:
-            Dict[str, Any]: API配置信息
+            endpoint: AkShare函数名
+            **params: 函数参数
             
         Raises:
-            ValueError: 当数据类型不存在时
+            DataSourceValidationError: 当参数验证失败时
         """
-        data_definitions = self._config_data.get('data_definitions', {})
-        if data_type not in data_definitions:
-            raise ValueError(f"未找到数据类型 '{data_type}' 的配置")
-        
-        api_config = data_definitions[data_type].copy()
-        
-        # 转换为与tushare兼容的格式
-        if 'method' in api_config:
-            api_config['api_method'] = api_config['method']
-        if 'required_params' in api_config:
-            api_config['required_fields'] = api_config['required_params']
+        # 检查endpoint是否为有效的AkShare函数
+        if not hasattr(ak, endpoint):
+            error_msg = f"AkShare中不存在函数: {endpoint}"
+            self.logger.error(error_msg)
+            raise DataSourceValidationError(error_msg)
             
-        return api_config
+        # 可以根据需要添加更多特定验证逻辑
+        # 例如：某些函数的必需参数检查等
     
-    def _process_params(self, params: Dict[str, Any], api_config: Dict[str, Any]) -> Dict[str, Any]:
-        """处理请求参数
+    def _check_rate_limit(self):
+        """检查并执行频率限制"""
+        current_time = time.time()
         
-        Args:
-            params: 原始参数
-            api_config: API配置
-            
-        Returns:
-            Dict[str, Any]: 处理后的参数
-        """
-        # 使用ConfigManager处理参数
-        required_params = api_config.get('required_params', {})
-        return self.config_manager.process_request_params(required_params, **params)
+        # 重置请求窗口
+        if current_time - self._request_window_start >= 60:
+            self._request_count = 0
+            self._request_window_start = current_time
+        
+        # 检查是否超过频率限制
+        if self._request_count >= self.max_requests_per_minute:
+            sleep_time = 60 - (current_time - self._request_window_start)
+            if sleep_time > 0:
+                self.logger.info(f"达到频率限制，等待 {sleep_time:.1f} 秒")
+                time.sleep(sleep_time)
+                self._request_count = 0
+                self._request_window_start = time.time()
     
-    def _validate_params(self, params: Dict[str, Any], validation_rules: Dict[str, Any] = None) -> None:
-        """验证请求参数
-        
-        Args:
-            params: 请求参数
-            validation_rules: 验证规则，如果为None则使用配置中的规则
-            
-        Raises:
-            ValueError: 当字段格式不正确时
-        """
-        if validation_rules is None:
-            field_validation = self._config_data.get('field_validation', {})
-        else:
-            field_validation = validation_rules
-        
-        for param_name, param_value in params.items():
-            if param_name in field_validation:
-                validation_rule = field_validation[param_name]
-                
-                # 类型检查
-                expected_type = validation_rule.get('type')
-                if expected_type == 'string' and not isinstance(param_value, str):
-                    raise ValueError(f"参数 {param_name} 必须是字符串类型")
-                
-                # 正则表达式验证
-                pattern = validation_rule.get('pattern')
-                if pattern and isinstance(param_value, str):
-                    if not re.match(pattern, param_value):
-                        description = validation_rule.get('description', '格式不正确')
-                        raise ValueError(f"参数 {param_name} {description}，当前值: {param_value}")
+    def _update_request_count(self):
+        """更新请求计数"""
+        self._request_count += 1
+        self._last_request_time = time.time()
     
-    def get_available_assets(self) -> List[str]:
-        """获取可用资产列表
-        
-        Returns:
-            List[str]: 资产代码列表
-        """
-        try:
-            # 获取A股股票列表
-            stock_list = ak.stock_zh_a_spot_em()
-            return stock_list['代码'].tolist() if '代码' in stock_list.columns else []
-        except Exception as e:
-            self.logger.error(f"获取资产列表失败: {e}")
-            return []
-    
-    def validate_asset(self, asset: str) -> bool:
-        """验证资产代码是否有效
-        
-        Args:
-            asset: 资产代码
-            
-        Returns:
-            bool: 资产代码是否有效
-        """
-        # 简单的股票代码格式验证
-        if len(asset) == 6 and asset.isdigit():
-            return True
-        return False
-    
-    # ==================== 具体数据获取方法 ====================
-    
-    def get_stock_lrb_em(self, quarterly_date: str) -> pd.DataFrame:
-        """获取东方财富利润表数据
-        
-        Args:
-            quarterly_date: 季报日期，格式为"YYYYMMDD"，如"20240331"
-                 可选值: {"XXXX0331", "XXXX0630", "XXXX0930", "XXXX1231"}
-                 从20081231开始
-        
-        Returns:
-            pd.DataFrame: 利润表数据
-            
-        Raises:
-            ValueError: 日期格式不正确
-            RuntimeError: 数据源未连接或获取数据失败
-        """
-        try:
-            data = self.fetch_data('stock_lrb_em', date=quarterly_date)
-            return {
-                'success': True,
-                'data': data.to_dict('records') if not data.empty else [],
-                'errors': []
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'data': [],
-                'errors': [str(e)]
-            }

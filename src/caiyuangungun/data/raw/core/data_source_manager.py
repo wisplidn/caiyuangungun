@@ -24,29 +24,12 @@ from pathlib import Path
 import importlib
 import importlib.util
 
-# 使用绝对导入避免相对导入问题
-import sys
-from pathlib import Path
-
-# 添加core目录到Python路径
-core_dir = Path(__file__).parent
-if str(core_dir) not in sys.path:
-    sys.path.insert(0, str(core_dir))
-
-# 使用绝对路径导入避免相对导入问题
-def import_from_path(module_name, file_path):
-    spec = importlib.util.spec_from_file_location(module_name, str(file_path))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-# 导入ConfigManager
-config_manager_module = import_from_path("config_manager", core_dir / "config_manager.py")
-ConfigManager = config_manager_module.ConfigManager
-
-# 导入BaseDataSource
-base_data_source_module = import_from_path("base_data_source", core_dir / "base_data_source.py")
-BaseDataSource = base_data_source_module.BaseDataSource
+# 直接导入BaseDataSource
+try:
+    from .base_data_source import BaseDataSource
+except ImportError:
+    # 如果相对导入失败，尝试绝对导入
+    from base_data_source import BaseDataSource
 
 
 @dataclass
@@ -55,89 +38,90 @@ class DataSourceInfo:
     name: str
     enabled: bool
     class_path: str
-    config_file: str
-    health_check: Dict[str, Any]
+    config: Dict[str, Any]
     instance: Optional[BaseDataSource] = None
-    last_health_check: Optional[float] = None
-    health_status: bool = True
-    error_message: Optional[str] = None
 
 
 class DataSourceManager:
     """数据源管理器 - 轻量级容器/注册中心"""
     
-    def __init__(self, config_file: str = "data_source_manager_config.json"):
+    def __init__(self, config: Dict[str, Any] = None):
         """初始化数据源管理器
         
         Args:
-            config_file: 配置文件名
+            config: 配置字典，由service层提供
         """
         self.logger = logging.getLogger(__name__)
-        self.config_manager = ConfigManager()
-        self.config_file = config_file
+        self.config = config or {}
         
         # 数据源注册表
         self._sources: Dict[str, DataSourceInfo] = {}
         self._instances: Dict[str, BaseDataSource] = {}
         self._lock = threading.RLock()
         
-        # 管理器设置
-        self._settings = {
+        # 管理器设置 - 从外部config覆盖默认值
+        default_settings = {
             "lazy_loading": True,
             "health_check_interval": 300,
             "log_level": "INFO",
             "enable_monitoring": True
         }
+        self._settings = {**default_settings, **self.config.get('manager_settings', {})}
         
         # 加载配置
         self._load_config()
         
         # 设置日志级别
         if self._settings.get("log_level"):
-            logging.getLogger(__name__).setLevel(
+            self.logger.setLevel(
                 getattr(logging, self._settings["log_level"])
             )
+        
+        # 如果不是懒加载模式，预创建所有启用的数据源实例
+        if not self._settings.get("lazy_loading", True):
+            self._preload_instances()
     
     def _load_config(self) -> None:
-        """加载配置文件"""
+        """加载配置"""
         try:
-            # 获取所有配置
-            all_config = self.config_manager.get_all_config()
-            
-            # 从统一配置中提取数据源配置
-            unified_data_config = all_config.get('unified_data_config', {})
-            data_sources = unified_data_config.get('data_sources', {})
+            # 从传入的config中提取数据源配置
+            data_sources = self.config.get('data_sources', {})
             
             if not data_sources:
-                self.logger.error("未找到统一数据配置或data_sources配置")
+                self.logger.warning("未找到data_sources配置，将使用空配置")
                 return
             
             # 注册数据源
             for name, source_config in data_sources.items():
-                # 转换配置格式以适配DataSourceManager
+                # 简化配置格式
                 manager_config = {
                     "enabled": source_config.get("enabled", True),
                     "class_path": source_config.get("class_path", ""),
-                    "config_file": "unified_data_config.json",  # 统一使用unified配置
-                    "health_check": source_config.get("health_check", {})
+                    "config": source_config  # 直接传递完整的source_config
                 }
-                
-                # 设置实例化方法为config_manager方式
-                if "health_check" not in manager_config:
-                    manager_config["health_check"] = {}
-                if "instantiation" not in manager_config["health_check"]:
-                    manager_config["health_check"]["instantiation"] = {
-                        "method": "config_manager"
-                    }
                 
                 self._register_source(name, manager_config)
             
-            self.logger.info(f"已加载配置文件: {self.config_file}")
             self.logger.info(f"注册数据源数量: {len(self._sources)}")
             
+            # 记录配置加载时间
+            self._last_config_load = time.time()
+            
         except Exception as e:
-            self.logger.error(f"加载配置文件失败: {e}")
+            self.logger.error(f"加载配置失败: {e}")
             raise
+    
+    def _preload_instances(self) -> None:
+        """预加载所有启用的数据源实例（非懒加载模式）"""
+        for name, source_info in self._sources.items():
+            if source_info.enabled:
+                try:
+                    instance = self._create_instance(name)
+                    self._instances[name] = instance
+                    source_info.instance = instance
+                    self.logger.info(f"预加载数据源实例: {name}")
+                except Exception as e:
+                    self.logger.error(f"预加载数据源实例 {name} 失败: {e}")
     
     def _register_source(self, name: str, config: Dict[str, Any]) -> None:
         """注册数据源
@@ -151,8 +135,7 @@ class DataSourceManager:
                 name=name,
                 enabled=config.get("enabled", True),
                 class_path=config["class_path"],
-                config_file=config["config_file"],
-                health_check=config.get("health_check", {})
+                config=config.get("config", {})
             )
             
             self._sources[name] = source_info
@@ -177,77 +160,49 @@ class DataSourceManager:
             # 动态导入类
             module_path, class_name = source_info.class_path.rsplit('.', 1)
             
-            # 处理相对导入路径 - 始终使用绝对路径导入避免相对导入问题
-            if module_path.startswith('caiyuangungun.data.raw.sources'):
-                # 使用绝对路径导入
-                sources_dir = Path(__file__).parent.parent / 'sources'
-                module_file = sources_dir / f"{class_name.lower().replace('datasource', '_source')}.py"
-                
-                if module_file.exists():
-                    spec = importlib.util.spec_from_file_location(module_path, str(module_file))
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
+            # 简化导入逻辑，直接使用importlib导入
+            try:
+                module = importlib.import_module(module_path)
+            except ImportError as e:
+                # 如果直接导入失败，尝试添加当前目录到路径
+                if module_path.startswith('sources.'):
+                    try:
+                        # 尝试从当前目录的sources模块导入
+                        import sys
+                        from pathlib import Path
+                        current_dir = Path(__file__).parent.parent
+                        if str(current_dir) not in sys.path:
+                            sys.path.insert(0, str(current_dir))
+                        module = importlib.import_module(module_path)
+                    except ImportError:
+                        raise ImportError(f"无法导入模块 {module_path}: {e}")
                 else:
-                    # 尝试其他可能的文件名格式
-                    alternative_names = [
-                        f"{name}_source.py",
-                        f"{name}.py",
-                        f"{class_name.lower()}.py"
-                    ]
-                    
-                    module = None
-                    for alt_name in alternative_names:
-                        alt_file = sources_dir / alt_name
-                        if alt_file.exists():
-                            spec = importlib.util.spec_from_file_location(module_path, str(alt_file))
-                            module = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(module)
-                            break
-                    
-                    if module is None:
-                        raise ImportError(f"无法找到数据源模块文件: {module_file} 或其替代文件")
-            else:
-                # 对于其他模块路径，也尝试使用绝对路径导入
-                try:
-                    # 尝试直接导入（可能会失败）
-                    module = importlib.import_module(module_path)
-                except ImportError:
-                    # 如果直接导入失败，尝试从当前项目路径导入
-                    project_root = Path(__file__).parent.parent.parent.parent.parent
-                    module_parts = module_path.split('.')
-                    module_file = project_root
-                    for part in module_parts:
-                        module_file = module_file / part
-                    module_file = module_file.with_suffix('.py')
-                    
-                    if module_file.exists():
-                        spec = importlib.util.spec_from_file_location(module_path, str(module_file))
-                        module = importlib.util.module_from_spec(spec)
-                        spec.loader.exec_module(module)
-                    else:
-                        raise ImportError(f"无法导入模块: {module_path}")
+                    raise ImportError(f"无法导入模块 {module_path}: {e}")
                 
             source_class: Type[BaseDataSource] = getattr(module, class_name)
             
-            # 创建实例 - 根据配置决定实例化方式
-            instantiation_config = source_info.health_check.get('instantiation', {})
-            instantiation_method = instantiation_config.get('method', 'standard')
+            # 将字典配置转换为DataSourceConfig对象
+            try:
+                from .base_data_source import DataSourceConfig
+            except ImportError:
+                from base_data_source import DataSourceConfig
             
-            if instantiation_method == 'config_manager':
-                # 使用ConfigManager方式实例化（适用于需要从ConfigManager加载配置的数据源）
-                # 不传递任何参数，让数据源自己从ConfigManager加载配置
-                instance = source_class()
-            elif instantiation_method == 'custom':
-                # 自定义实例化参数
-                custom_params = instantiation_config.get('params', {})
-                instance = source_class(**custom_params)
+            # 创建DataSourceConfig对象
+            if isinstance(source_info.config, dict):
+                data_source_config = DataSourceConfig(
+                    name=source_info.config.get('name', name),
+                    source_type=source_info.config.get('source_type', name),
+                    connection_params=source_info.config.get('connection_params', {}),
+                    rate_limit=source_info.config.get('rate_limit'),
+                    timeout=source_info.config.get('timeout', 30),
+                    retry_count=source_info.config.get('retry_count', 3)
+                )
             else:
-                # 标准实例化方式 - 获取数据源配置
-                source_config = self.config_manager.get_data_source_config(name)
-                if not source_config:
-                    self.logger.warning(f"未找到数据源 {name} 的配置")
-                    source_config = {}
-                instance = source_class(source_config)
+                # 如果已经是DataSourceConfig对象，直接使用
+                data_source_config = source_info.config
+            
+            # 使用DataSourceConfig对象创建实例
+            instance = source_class(data_source_config)
             
             # 创建实例后自动调用connect方法建立连接
             if hasattr(instance, 'connect'):
@@ -281,30 +236,37 @@ class DataSourceManager:
                 "name": name,
                 "enabled": info.enabled,
                 "class_path": info.class_path,
-                "config_file": info.config_file,
-                "health_status": info.health_status,
-                "last_health_check": info.last_health_check,
-                "error_message": info.error_message,
+                "config": info.config,
                 "instance_created": name in self._instances
             })
         return sources
     
-    def get_instance(self, name: str) -> Optional[BaseDataSource]:
+    def get_instance(self, name: str, strict: bool = True) -> Optional[BaseDataSource]:
         """获取数据源实例
         
         Args:
             name: 数据源名称
+            strict: 严格模式，失败时抛异常而不是返回None
             
         Returns:
-            数据源实例，如果不存在或未启用则返回None
+            数据源实例，如果不存在或未启用则返回None（非严格模式）
+            
+        Raises:
+            ValueError: 严格模式下，数据源未注册、未启用或创建失败时抛出
         """
         if name not in self._sources:
-            self.logger.warning(f"数据源 {name} 未注册")
+            error_msg = f"数据源 {name} 未注册"
+            self.logger.warning(error_msg)
+            if strict:
+                raise ValueError(error_msg)
             return None
         
         source_info = self._sources[name]
         if not source_info.enabled:
-            self.logger.warning(f"数据源 {name} 未启用")
+            error_msg = f"数据源 {name} 未启用"
+            self.logger.warning(error_msg)
+            if strict:
+                raise ValueError(error_msg)
             return None
         
         with self._lock:
@@ -312,7 +274,7 @@ class DataSourceManager:
             if name in self._instances:
                 return self._instances[name]
             
-            # 懒加载：需要时才创建实例
+            # 懒加载模式：需要时才创建实例
             if self._settings.get("lazy_loading", True):
                 try:
                     instance = self._create_instance(name)
@@ -320,130 +282,20 @@ class DataSourceManager:
                     source_info.instance = instance
                     return instance
                 except Exception as e:
-                    self.logger.error(f"获取数据源实例 {name} 失败: {e}")
+                    error_msg = f"获取数据源实例 {name} 失败: {e}"
+                    self.logger.error(error_msg)
+                    if strict:
+                        raise ValueError(error_msg) from e
                     return None
-            
-            return None
+            else:
+                # 非懒加载模式：实例应该已经在初始化时创建
+                error_msg = f"数据源 {name} 实例未找到，可能预加载失败"
+                self.logger.warning(error_msg)
+                if strict:
+                    raise ValueError(error_msg)
+                return None
     
-    def health_check(self, source_name: Optional[str] = None) -> Dict[str, Any]:
-        """执行健康检查
-        
-        Args:
-            source_name: 指定数据源名称，None表示检查所有数据源
-            
-        Returns:
-            健康检查结果
-        """
-        results = {}
-        current_time = time.time()
-        
-        # 确定要检查的数据源
-        sources_to_check = [source_name] if source_name else list(self._sources.keys())
-        
-        for name in sources_to_check:
-            if name not in self._sources:
-                results[name] = {"status": "error", "message": "数据源未注册"}
-                continue
-            
-            source_info = self._sources[name]
-            if not source_info.enabled:
-                results[name] = {"status": "disabled", "message": "数据源未启用"}
-                continue
-            
-            # 检查是否需要执行健康检查
-            health_config = source_info.health_check
-            if not health_config.get("enabled", False):
-                results[name] = {"status": "skipped", "message": "健康检查未启用"}
-                continue
-            
-            try:
-                # 获取实例
-                instance = self.get_instance(name)
-                if not instance:
-                    results[name] = {"status": "error", "message": "无法获取数据源实例"}
-                    source_info.health_status = False
-                    continue
-                
-                # 执行健康检查
-                endpoint = health_config.get("endpoint", "stock_basic")
-                timeout = health_config.get("timeout", 10)
-                
-                # 简单的连接检查
-                if hasattr(instance, 'is_connected') and not instance.is_connected():
-                    instance.connect()
-                
-                # 尝试获取少量数据验证连接
-                test_params = {"limit": 1}
-                if endpoint == "stock_basic":
-                    test_params = {}
-                elif endpoint in ["daily", "adj_factor"]:
-                    test_params = {"trade_date": "20240101", "limit": 1}
-                elif endpoint == "stock_lrb_em":
-                    test_params = {"date": "20240331"}
-                
-                start_time = time.time()
-                # 使用正确的方法名和参数格式
-                if hasattr(instance, 'fetch_data'):
-                    data = instance.fetch_data(endpoint, **test_params)
-                else:
-                    data = instance.get_data(endpoint, test_params)
-                elapsed_time = time.time() - start_time
-                
-                if data is not None and len(data) >= 0:
-                    results[name] = {
-                        "status": "healthy",
-                        "message": "健康检查通过",
-                        "response_time": elapsed_time,
-                        "data_count": len(data) if hasattr(data, '__len__') else 0
-                    }
-                    source_info.health_status = True
-                    source_info.error_message = None
-                else:
-                    results[name] = {"status": "warning", "message": "返回数据为空"}
-                    source_info.health_status = False
-                
-            except Exception as e:
-                error_msg = f"健康检查失败: {str(e)}"
-                results[name] = {"status": "error", "message": error_msg}
-                source_info.health_status = False
-                source_info.error_message = error_msg
-                self.logger.error(f"数据源 {name} 健康检查失败: {e}")
-            
-            finally:
-                source_info.last_health_check = current_time
-        
-        return results
-    
-    def reload_config(self) -> bool:
-        """重新加载配置
-        
-        Returns:
-            是否成功重新加载
-        """
-        try:
-            # 清理现有实例（如果需要）
-            old_instances = self._instances.copy()
-            
-            # 重新加载配置
-            self._sources.clear()
-            self._instances.clear()
-            self._load_config()
-            
-            # 关闭旧实例的连接
-            for instance in old_instances.values():
-                try:
-                    if hasattr(instance, 'disconnect'):
-                        instance.disconnect()
-                except Exception as e:
-                    self.logger.warning(f"关闭旧实例连接时出错: {e}")
-            
-            self.logger.info("配置重新加载成功")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"重新加载配置失败: {e}")
-            return False
-    
+
     def get_metrics(self) -> Dict[str, Any]:
         """获取运行指标
         
@@ -457,8 +309,6 @@ class DataSourceManager:
             "total_sources": len(self._sources),
             "enabled_sources": sum(1 for s in self._sources.values() if s.enabled),
             "active_instances": len(self._instances),
-            "healthy_sources": sum(1 for s in self._sources.values() if s.health_status),
-            "sources_with_errors": sum(1 for s in self._sources.values() if s.error_message),
             "last_config_load": getattr(self, '_last_config_load', None)
         }
         

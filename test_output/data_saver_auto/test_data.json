@@ -1,0 +1,17 @@
+{
+  "source": "test",
+  "created_at": "2024-01-01",
+  "data_md5": "185c85332172f83abfdf1f4850d997f7",
+  "data_shape": [
+    3,
+    2
+  ],
+  "updated_at": "2025-09-15T20:48:44.345243",
+  "previous": {
+    "rows": 3,
+    "columns": 2,
+    "md5": "c15df8f60a639bf3524486f845cd1459",
+    "filename": "test_data.parquet",
+    "updated_at": "2025-09-15T20:48:28.563703"
+  }
+}

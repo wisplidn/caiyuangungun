@@ -6,7 +6,7 @@
     },
     "trade_cal": {
       "limitmax": 9497,
-      "updated_at": "2025-09-07T17:15:17.089601"
+      "updated_at": "2025-09-14T16:26:52.147256"
     },
     "daily": {
       "limitmax": 5424,
@@ -55,6 +55,18 @@
     "balancesheet": {
       "limitmax": 7000,
       "updated_at": "2025-09-07T21:07:35.741377"
+    },
+    "income_vip": {
+      "limitmax": 9000,
+      "updated_at": "2025-09-14T21:12:46.687064"
+    },
+    "balancesheet_vip": {
+      "limitmax": 7000,
+      "updated_at": "2025-09-14T21:13:08.570695"
+    },
+    "cashflow_vip": {
+      "limitmax": 6400,
+      "updated_at": "2025-09-14T21:13:19.010695"
     }
   }
 }
