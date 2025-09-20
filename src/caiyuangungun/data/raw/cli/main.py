@@ -151,6 +151,8 @@ def cmd_collect_data(args):
         kwargs['force_update'] = args.force_update
     if args.lookback_multiplier:
         kwargs['lookback_multiplier'] = args.lookback_multiplier
+    if args.max_tasks:
+        kwargs['max_tasks'] = args.max_tasks
     
     try:
         # 初始化服务
@@ -359,6 +361,7 @@ def create_parser():
     collect_parser.add_argument('--end-date', type=validate_date_format, help='结束日期 (YYYYMMDD格式)')
     collect_parser.add_argument('--force-update', type=bool, help='是否强制更新 (true/false)')
     collect_parser.add_argument('--lookback-multiplier', type=int, help='回看周期扩展倍数')
+    collect_parser.add_argument('--max-tasks', type=int, default=999999, help='任务数上限，默认: 999999')
     collect_parser.add_argument('--output', help='输出结果到文件 (JSON格式)')
     collect_parser.set_defaults(func=cmd_collect_data)
     

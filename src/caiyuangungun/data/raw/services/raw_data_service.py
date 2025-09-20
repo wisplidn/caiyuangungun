@@ -101,7 +101,7 @@ class TaskGenerator:
     负责根据配置和规则生成数据采集任务
     """
     
-    def __init__(self, config_manager=None, force_update=True):
+    def __init__(self, config_manager=None, force_update=False):
         self.config_manager = config_manager or get_config_manager()
         self.logger = logging.getLogger(__name__ + '.TaskGenerator')
         self.placeholder_generator = PlaceholderGenerator()
@@ -207,7 +207,8 @@ class TaskGenerator:
                 if storage_type_upper in ['DAILY', 'MONTHLY', 'QUARTERLY']:
                     date_value = None
                     # 支持多种日期参数名称映射到统一的date参数
-                    for date_key in ['daily_date', 'monthly_date', 'quarterly_date', 'trade_date', 'month', 'quarter', 'date']:
+                    # 添加 'period' 参数支持，用于处理 fina_indicator_vip 等接口的季度日期
+                    for date_key in ['daily_date', 'monthly_date', 'quarterly_date', 'trade_date', 'month', 'quarter', 'date', 'period','end_date']:
                         if date_key in required_params:
                             date_value = required_params[date_key]
                             break
@@ -242,6 +243,17 @@ class TaskGenerator:
                             path_params['date'] = date_value[block['block_index']] if block['block_index'] < len(date_value) else date_value[0]
                         else:
                             path_params['date'] = date_value
+                
+                # 添加symbol相关参数 - 对于SYMBOL类型的archive_type
+                if storage_type_upper == 'SYMBOL':
+                    symbol_value = None
+                    # 查找symbol参数
+                    if 'symbol' in required_params:
+                        symbol_value = required_params['symbol']
+                        if isinstance(symbol_value, list) and 'block_index' in block:
+                            path_params['symbol'] = symbol_value[block['block_index']] if block['block_index'] < len(symbol_value) else symbol_value[0]
+                        else:
+                            path_params['symbol'] = symbol_value
                 
                 # 从配置管理器获取PathGenerator配置
                 # 直接从path_generator_config获取配置
@@ -493,7 +505,8 @@ class TaskGenerator:
                                      start_date: Optional[str] = None,
                                      end_date: Optional[str] = None,
                                      lookback_multiplier: int = 0,
-                                     force_update: Optional[bool] = None) -> Dict[str, Any]:
+                                     force_update: Optional[bool] = None,
+                                     **kwargs) -> Dict[str, Any]:
         """生成任务列表并进行配置规则校验
         
         这个函数合并了TaskGenerator类的功能，在调用generate_tasks之前
@@ -615,14 +628,18 @@ class TaskGenerator:
         Returns:
             List[Dict[str, Any]]: 过滤后的任务块列表
         """
-        import os
         filtered_blocks = []
         
         for block in task_blocks:
-            # 检查文件是否存在
-            file_path = block.get('path')
-            if file_path and os.path.exists(file_path):
-                self.logger.debug(f"文件已存在，跳过任务块: {file_path}")
+            # 检查文件是否存在 - 使用convert_task_list_to_blocks方法设置的data_file_exists字段
+            data_file_exists = block.get('data_file_exists', False)
+            if data_file_exists:
+                # 获取任务块的标识信息用于日志
+                params = block.get('required_params', {})
+                symbol = params.get('symbol', 'unknown')
+                data_source = block.get('data_source', 'unknown')
+                endpoint = block.get('endpoint', 'unknown')
+                self.logger.debug(f"文件已存在，跳过任务块: {data_source}.{endpoint} symbol={symbol}")
                 continue
             
             # 如果文件不存在，保留任务块
@@ -1860,6 +1877,13 @@ class RawDataService:
                 }
             
             self.logger.info(f"生成了 {len(task_blocks)} 个任务块")
+            
+            # 应用max_tasks限制（如果指定）
+            max_tasks = kwargs.get('max_tasks')
+            if max_tasks is not None and max_tasks > 0 and len(task_blocks) > max_tasks:
+                original_count = len(task_blocks)
+                task_blocks = task_blocks[:max_tasks]
+                self.logger.info(f"应用任务数上限 {max_tasks}，从 {original_count} 个任务块减少到 {len(task_blocks)} 个")
             
             # 2. 执行任务块并保存数据
             successful_tasks = 0

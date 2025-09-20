@@ -168,9 +168,9 @@ class PathGenerator:
             if 'date' not in params or not params['date']:
                 result.add_error("QUARTERLY类型需要提供date参数")
                 result.add_error("正确示例: date='20240331'、'20240630'、'20240930'、'20241231'")
-        elif archive_type == 'symbol':
+        elif archive_type == 'SYMBOL':
             if 'symbol' not in params or not params['symbol']:
-                result.add_error("symbol类型需要提供symbol参数")
+                result.add_error("SYMBOL类型需要提供symbol参数")
                 result.add_error("正确示例: symbol='SH600519'")
         # SNAPSHOT类型不需要date参数
         
@@ -244,17 +244,28 @@ class PathGenerator:
                     result.add_error("QUARTERLY类型的date必须是财报日期")
                     result.add_error("正确示例: date='20240331'（Q1）、'20240630'（Q2）、'20240930'（Q3）、'20241231'（Q4）")
                     result.is_valid = False
-        elif archive_type == 'symbol':
-            # symbol类型要求股票代码格式
+        elif archive_type == 'SYMBOL':
+            # SYMBOL类型支持三种股票代码格式
             symbol_value = params.get('symbol')
             if not symbol_value:
-                result.add_error("symbol类型需要提供symbol参数")
-                result.add_error("正确示例: symbol='SH600519'")
+                result.add_error("SYMBOL类型需要提供symbol参数")
+                result.add_error("正确示例: symbol='SH600519'（字母+数字）、'600519.SH'（数字+字母）或 '600519'（纯数字）")
                 result.is_valid = False
-            elif not re.match(r'^(SH|SZ)\d{6}$', symbol_value):
-                result.add_error("symbol类型的symbol必须是AK格式的股票代码")
-                result.add_error("正确示例: symbol='SH600519'（上海）或 'SZ000001'（深圳）")
-                result.is_valid = False
+            else:
+                # 验证三种格式：
+                # 1. 字母+数字格式：SH600519, SZ000001
+                # 2. 数字+字母格式：600519.SH, 000001.SZ  
+                # 3. 纯数字格式：600519, 000001
+                format1 = re.match(r'^(SH|SZ)\d{6}$', symbol_value)  # 字母+数字
+                format2 = re.match(r'^\d{6}\.(SH|SZ)$', symbol_value)  # 数字+字母
+                format3 = re.match(r'^\d{6}$', symbol_value)  # 纯数字
+                
+                if not (format1 or format2 or format3):
+                    result.add_error("SYMBOL类型的symbol必须是以下格式之一:")
+                    result.add_error("1. 字母+数字格式: 'SH600519'、'SZ000001'")
+                    result.add_error("2. 数字+字母格式: '600519.SH'、'000001.SZ'")
+                    result.add_error("3. 纯数字格式: '600519'、'000001'")
+                    result.is_valid = False
         
         return result
     
@@ -356,7 +367,7 @@ class PathGenerator:
                     'year': year,
                     'quarter': quarter
                 })
-            elif archive_type == 'symbol' and 'symbol' in params:
+            elif archive_type == 'SYMBOL' and 'symbol' in params:
                 # 处理股票代码参数
                 symbol_value = params['symbol']
                 path_vars.update({

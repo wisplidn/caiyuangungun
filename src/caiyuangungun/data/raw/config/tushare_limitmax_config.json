@@ -1,8 +1,8 @@
 {
   "endpoint_limits": {
     "stock_basic": {
-      "limitmax": 5429,
-      "updated_at": "2025-09-10T19:45:40.782735"
+      "limitmax": 5742,
+      "updated_at": "2025-09-17T20:27:30.724745"
     },
     "trade_cal": {
       "limitmax": 9497,
@@ -67,6 +67,22 @@
     "cashflow_vip": {
       "limitmax": 6400,
       "updated_at": "2025-09-14T21:13:19.010695"
+    },
+    "fina_indicator_vip": {
+      "limitmax": 11699,
+      "updated_at": "2025-09-18T20:39:04.575609"
+    },
+    "forecast_vip": {
+      "limitmax": 3500,
+      "updated_at": "2025-09-18T20:25:11.707471"
+    },
+    "express_vip": {
+      "limitmax": 1655,
+      "updated_at": "2025-09-18T20:30:39.117081"
+    },
+    "disclosure_date": {
+      "limitmax": 5438,
+      "updated_at": "2025-09-18T20:38:16.382851"
     }
   }
 }

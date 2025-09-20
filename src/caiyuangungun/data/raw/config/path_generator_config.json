@@ -44,8 +44,8 @@
         },
         "enabled": true
       },
-      "symbol": {
-        "value": "symbol",
+      "SYMBOL": {
+        "value": "SYMBOL",
         "description": "股票代码归档",
         "path_pattern": "{source_name}/{data_type}/{symbol}",
         "validation_rules": {

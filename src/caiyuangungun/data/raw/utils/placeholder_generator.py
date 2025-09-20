@@ -8,6 +8,9 @@ PlaceholderGenerator - 占位符生成器
 - <TRADE_DATE>: 交易日期
 - <MONTHLY_DATE_RANGE>: 月度日期范围
 - <QUARTERLY_DATE>: 季度日期
+- <AK_LISTED_SYMBOL>: AK格式的上市股票代码
+- <AK_DELISTED_SYMBOL>: AK格式的已退市股票代码
+- <AK_SYMBOL_EASTMONEY>: 东方财富格式的股票代码
 """
 
 import os
@@ -28,7 +31,11 @@ class PlaceholderGenerator:
         '<TRADE_DATE>',
         '<MONTHLY_DATE_RANGE>',
         '<QUARTERLY_DATE>',
-        '<AK_LISTED_SYMBOL>'
+        '<AK_LISTED_SYMBOL>',
+        '<AK_DELISTED_SYMBOL>',
+        '<AK_SYMBOL_EASTMONEY>',
+        '<AK_SYMBOL_A_STOCK>',
+        '<TODAY>'
     ]
     
     def __init__(self):
@@ -78,9 +85,17 @@ class PlaceholderGenerator:
             result = self._generate_quarterly_dates(normalized_start, normalized_end)
         elif placeholder == '<AK_LISTED_SYMBOL>':
             result = self._generate_ak_listed_symbols()
+        elif placeholder == '<AK_DELISTED_SYMBOL>':
+            result = self._generate_ak_delisted_symbols()
+        elif placeholder == '<AK_SYMBOL_EASTMONEY>':
+            result = self._generate_ak_symbol_eastmoney()
+        elif placeholder == '<AK_SYMBOL_A_STOCK>':
+            result = self._generate_ak_symbol_a_stock()
+        elif placeholder == '<TODAY>':
+            result = self._generate_today()
         
         # 4. 应用回看期数限制（仅在截断模式下）
-        if truncate_mode and placeholder != '<AK_LISTED_SYMBOL>':
+        if truncate_mode and placeholder not in ['<AK_LISTED_SYMBOL>', '<AK_DELISTED_SYMBOL>', '<AK_SYMBOL_EASTMONEY>', '<AK_SYMBOL_A_STOCK>', '<TODAY>']:
             max_periods = max(1, int(lookback_periods * lookback_multiplier))
             result = self._apply_lookback_limit(result, max_periods)
         
@@ -130,6 +145,12 @@ class PlaceholderGenerator:
                     if placeholder == '<MONTHLY_DATE_RANGE>':
                         processed_params['start_date'] = placeholder_dict.get('start_date', [])
                         processed_params['end_date'] = placeholder_dict.get('end_date', [])
+                    elif placeholder == '<TODAY>':
+                        # 特殊处理TODAY：返回字符串而不是列表
+                        if placeholder in placeholder_dict and placeholder_dict[placeholder]:
+                            processed_params[param_name] = placeholder_dict[placeholder][0]  # 取列表中的第一个元素作为字符串
+                        else:
+                            processed_params[param_name] = datetime.now().strftime('%Y%m%d')  # 备用方案
                     else:
                         # 正常占位符：保留原key，替换为列表值
                         if placeholder in placeholder_dict:
@@ -374,6 +395,115 @@ class PlaceholderGenerator:
             print(f"生成AK股票代码列表时出错: {e}")
             return {'<AK_LISTED_SYMBOL>': []}
     
+    def _generate_ak_delisted_symbols(self) -> Dict[str, List[str]]:
+        """
+        生成AK格式的已退市股票代码列表
+        
+        从tushare stock_basic数据中提取退市状态的公司，
+        将ts_code转换成AK格式（如SZ000013）
+        只包含退市状态的股票
+        
+        Returns:
+            包含已退市股票代码列表的字典
+        """
+        try:
+            # 读取股票基础信息
+            stock_basic_path = "/Users/daishun/个人文档/caiyuangungun/data/raw/landing/tushare/stock_basic/data.parquet"
+            df = pd.read_parquet(stock_basic_path)
+            
+            # 筛选退市状态的股票（list_status='D'表示退市）
+            delisted_df = df[df['list_status'] == 'D']
+            
+            # 转换ts_code格式为AK格式
+            # 000013.SZ -> SZ000013, 600519.SH -> SH600519
+            ak_symbols = []
+            for ts_code in delisted_df['ts_code'].tolist():
+                if '.' in ts_code:
+                    code, exchange = ts_code.split('.')
+                    ak_symbol = f"{exchange}{code}"
+                    ak_symbols.append(ak_symbol)
+            
+            print(f"成功生成{len(ak_symbols)}个已退市股票代码")
+            return {'<AK_DELISTED_SYMBOL>': ak_symbols}
+            
+        except Exception as e:
+            print(f"生成AK已退市股票代码列表时出错: {e}")
+            return {'<AK_DELISTED_SYMBOL>': []}
+    
+    def _generate_ak_symbol_eastmoney(self) -> Dict[str, List[str]]:
+        """
+        生成东方财富格式的股票代码列表
+        
+        从tushare stock_basic数据中提取上市状态的公司，
+        将ts_code转换成东方财富格式（如301389.SZ）
+        只包含正常上市状态的股票
+        
+        Returns:
+            包含东方财富格式股票代码列表的字典
+        """
+        try:
+            # 读取股票基础信息
+            stock_basic_path = "/Users/daishun/个人文档/caiyuangungun/data/raw/landing/tushare/stock_basic/data.parquet"
+            df = pd.read_parquet(stock_basic_path)
+            
+            # 筛选全部上市状态的股票
+            listed_df = df
+            
+            # 转换ts_code格式为东方财富格式
+            # 000013.SZ -> 000013.SZ, 600519.SH -> 600519.SH (保持原格式)
+            eastmoney_symbols = listed_df['ts_code'].tolist()
+            
+            print(f"成功生成{len(eastmoney_symbols)}个东方财富格式股票代码")
+            return {'<AK_SYMBOL_EASTMONEY>': eastmoney_symbols}
+            
+        except Exception as e:
+            print(f"生成东方财富格式股票代码列表时出错: {e}")
+            return {'<AK_SYMBOL_EASTMONEY>': []}
+    
+    def _generate_today(self) -> Dict[str, List[str]]:
+        """
+        生成当前日期的YYYYMMDD格式
+        
+        Returns:
+            包含当前日期的字典
+        """
+        today = datetime.now().strftime('%Y%m%d')
+        return {'<TODAY>': [today]}
+
+    def _generate_ak_symbol_a_stock(self) -> Dict[str, List[str]]:
+        """
+        生成A股格式的股票代码列表（如002044）
+        
+        从tushare stock_basic数据中提取上市状态的公司，
+        将ts_code转换成纯数字格式（如002044）
+        只包含正常上市状态的股票
+        
+        Returns:
+            包含A股格式股票代码列表的字典
+        """
+        try:
+            # 读取股票基础信息
+            stock_basic_path = "/Users/daishun/个人文档/caiyuangungun/data/raw/landing/tushare/stock_basic/data.parquet"
+            df = pd.read_parquet(stock_basic_path)
+            
+            # 筛选所有上市状态的股票
+            listed_df = df
+            
+            # 转换ts_code格式为纯数字格式
+            # 000001.SZ -> 000001, 600519.SH -> 600519
+            a_stock_symbols = []
+            for ts_code in listed_df['ts_code'].tolist():
+                if '.' in ts_code:
+                    code, exchange = ts_code.split('.')
+                    a_stock_symbols.append(code)
+            
+            print(f"成功生成{len(a_stock_symbols)}个A股格式股票代码")
+            return {'<AK_SYMBOL_A_STOCK>': a_stock_symbols}
+            
+        except Exception as e:
+            print(f"生成A股格式股票代码列表时出错: {e}")
+            return {'<AK_SYMBOL_A_STOCK>': []}
+
     def _apply_lookback_limit(self, result: Dict[str, List[str]], max_periods: int) -> Dict[str, List[str]]:
         """
         应用回看期数限制

@@ -179,11 +179,10 @@ class TushareDataSource(BaseDataSource):
         super()._validate_fetch_params(endpoint, **params)
         
         # Tushare特定验证
-        self._validate_tushare_params(endpoint, **params)
         if not self.is_connected():
             raise RuntimeError("Tushare未连接")
         
-        # 提取limitmax参数，默认为3000
+        # 提取limitmax参数，默认为3000，提取后在表格删除，因为不需要作为参数传递给tushare
         limitmax = params.pop('limitmax', 3000)
         self.limitmax = limitmax
         
@@ -334,34 +333,7 @@ class TushareDataSource(BaseDataSource):
         
         return pd.DataFrame()
     
-    def _validate_tushare_params(self, endpoint: str, **params) -> None:
-        """验证Tushare特定参数
-        
-        Args:
-            endpoint: Tushare API接口名
-            **params: 接口参数
-            
-        Raises:
-            DataSourceValidationError: 当参数验证失败时
-        """
-        # 检查常见的Tushare接口
-        valid_endpoints = [
-            'stock_basic', 'trade_cal', 'daily', 'weekly', 'monthly',
-            'adj_factor', 'suspend_d', 'daily_basic', 'moneyflow',
-            'stk_limit', 'stk_factor', 'pro_bar', 'income_vip', 'balancesheet_vip',
-            'cashflow_vip', 'forecast', 'express', 'dividend', 'fina_indicator',
-            'fina_audit', 'fina_mainbz', 'disclosure_date', 'margin',
-            'margin_detail', 'top10_holders', 'top10_floatholders',
-            'top_list', 'top_inst', 'pledge_stat', 'pledge_detail',
-            'share_float', 'block_trade', 'stk_rewards', 'repurchase',
-            'concept', 'concept_detail', 'stk_surv', 'broker_recommend'
-        ]
-        
-        if endpoint not in valid_endpoints:
-            self.logger.warning(f"接口 {endpoint} 可能不是标准的Tushare接口")
-            
-        # 可以根据需要添加更多特定验证逻辑
-        # 例如：某些接口的必需参数检查等
+
     
 
     

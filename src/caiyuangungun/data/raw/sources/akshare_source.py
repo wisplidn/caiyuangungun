@@ -138,6 +138,8 @@ class AkshareDataSource(BaseDataSource):
             RuntimeError: 当获取数据失败时
             DataSourceValidationError: 当参数验证失败时
         """
+        time.sleep(0.5)
+
         # 调用父类验证
         super()._validate_fetch_params(endpoint, **params)
         
