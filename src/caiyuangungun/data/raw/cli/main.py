@@ -155,8 +155,9 @@ def cmd_collect_data(args):
         kwargs['max_tasks'] = args.max_tasks
     
     try:
-        # 初始化服务
-        service = RawDataService()
+        # 初始化服务，传递force_update参数
+        force_update = kwargs.get('force_update', False)
+        service = RawDataService(force_update=force_update)
         
         # 执行数据采集
         result = service.collect_data(
@@ -240,8 +241,9 @@ def cmd_generate_tasks(args):
         kwargs['lookback_multiplier'] = args.lookback_multiplier
     
     try:
-        # 初始化服务
-        service = RawDataService()
+        # 初始化服务，传递force_update参数
+        force_update = kwargs.get('force_update', False)
+        service = RawDataService(force_update=force_update)
         
         # 生成任务
         result = service.generate_tasks_with_validation(
@@ -359,7 +361,7 @@ def create_parser():
     collect_parser.add_argument('--storage-types', help='存储类型列表，逗号分隔 (如: SNAPSHOT,PERIOD)，默认: DAILY')
     collect_parser.add_argument('--start-date', type=validate_date_format, help='开始日期 (YYYYMMDD格式)')
     collect_parser.add_argument('--end-date', type=validate_date_format, help='结束日期 (YYYYMMDD格式)')
-    collect_parser.add_argument('--force-update', type=bool, help='是否强制更新 (true/false)')
+    collect_parser.add_argument('--force-update', type=lambda x: x.lower() == 'true', help='是否强制更新 (true/false)')
     collect_parser.add_argument('--lookback-multiplier', type=int, help='回看周期扩展倍数')
     collect_parser.add_argument('--max-tasks', type=int, default=999999, help='任务数上限，默认: 999999')
     collect_parser.add_argument('--output', help='输出结果到文件 (JSON格式)')
@@ -372,7 +374,7 @@ def create_parser():
     generate_parser.add_argument('--storage-types', help='存储类型列表，逗号分隔，默认: DAILY')
     generate_parser.add_argument('--start-date', type=validate_date_format, help='开始日期 (YYYYMMDD格式)')
     generate_parser.add_argument('--end-date', type=validate_date_format, help='结束日期 (YYYYMMDD格式)')
-    generate_parser.add_argument('--force-update', type=bool, help='是否强制更新 (true/false)')
+    generate_parser.add_argument('--force-update', type=lambda x: x.lower() == 'true', help='是否强制更新 (true/false)')
     generate_parser.add_argument('--lookback-multiplier', type=int, help='回看周期扩展倍数')
     generate_parser.add_argument('--show-tasks', action='store_true', help='显示生成的任务详情')
     generate_parser.add_argument('--output', help='输出结果到文件 (JSON格式)')
@@ -394,7 +396,7 @@ def main():
     args = parser.parse_args()
     
     # 设置日志
-    setup_logging(args.verbose)
+    setup_logging(getattr(args, 'verbose', False))
     
     # 如果没有指定命令，显示帮助
     if not args.command:
@@ -409,7 +411,7 @@ def main():
         return 130
     except Exception as e:
         print(f"执行出错: {e}")
-        if args.verbose:
+        if getattr(args, 'verbose', False):
             import traceback
             traceback.print_exc()
         return 1

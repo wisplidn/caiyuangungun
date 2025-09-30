@@ -1,508 +1,322 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-路径管理器 - 统一管理Raw层和Norm层的路径构建
-
-职责：
-1. 基于配置文件动态构建Raw层数据读取路径
-2. 构建Norm层各阶段的数据读取和写入路径
-3. 提供路径验证和目录创建功能
-4. 支持路径模板参数化和动态替换
+路径管理器模块
+用于管理数据文件路径，提供文件路径生成和查找功能
+基于实际文件系统结构动态识别路径，而不依赖配置文件构造
 """
 
 import os
-from typing import Dict, Any, Optional, List, Union
-from datetime import datetime, timedelta
-from pathlib import Path
 import glob
-from calendar import monthrange
-
-from .config_manager import get_config_manager
-from ....contracts import DataSource
+import re
+from datetime import datetime, timedelta
+from typing import List, Tuple, Optional, Dict, Any
+from pathlib import Path
 
 
 class PathManager:
-    """路径管理器
+    """路径管理器类"""
     
-    统一管理Raw层和Norm层的路径构建，支持动态配置和模板化路径生成。
-    """
-    
-    def __init__(self):
-        """初始化路径管理器"""
-        self.config_manager = get_config_manager()
-        self._path_config = None
-        self._load_path_config()
-    
-    def _load_path_config(self):
-        """加载路径配置"""
-        self._path_config = self.config_manager.get_path_config()
-        if not self._path_config:
-            raise ValueError("Failed to load path configuration")
-    
-    def get_raw_path(self, source: DataSource, data_type: str, 
-                    date_info: Optional[Dict[str, str]] = None,
-                    create_dirs: bool = False) -> str:
-        """获取Raw层数据读取路径
+    def __init__(self, base_path: str, supported_formats: List[str] = None, default_format: str = "parquet"):
+        """
+        初始化路径管理器
         
         Args:
-            source: 数据源
-            data_type: 数据类型/接口名称
-            date_info: 日期信息字典，包含year_month, day等
-            create_dirs: 是否创建目录
-            
-        Returns:
-            完整的文件路径
-            
-        Raises:
-            ValueError: 当存储类型不支持或配置缺失时
+            base_path: 数据文件的基础路径
+            supported_formats: 支持的文件格式列表，默认为["parquet", "json"]
+            default_format: 默认文件格式，默认为"parquet"
         """
-        # 获取存储类型
-        storage_type = self.config_manager.get_storage_type(source, data_type)
-        if not storage_type:
-            raise ValueError(f"No storage type found for {source.value}.{data_type}")
+        self.base_path = base_path
+        self.supported_formats = supported_formats or ["parquet", "json"]
+        self.default_format = default_format
         
-        # 获取存储类型配置
-        storage_types = self.config_manager.get_storage_types()
-        archive_config = storage_types.get(storage_type)
-        if not archive_config or not archive_config.get("enabled", True):
-            raise ValueError(f"Storage type {storage_type} is not enabled or configured")
-        
-        # 构建路径模板参数
-        path_params = {
-            'source_name': source.value,
-            'data_type': data_type
+        # 日期模式识别正则表达式（调整优先级，避免股票代码被误识别为日期）
+        self.date_patterns = {
+            'daily': re.compile(r'(\d{6})/(\d{2})', re.IGNORECASE),    # YYYYMM/DD
+            'monthly': re.compile(r'(\d{6})(?:/|$)', re.IGNORECASE),   # YYYYMM
+            'quarterly': re.compile(r'(\d{4}Q[1-4])(?:/|$)', re.IGNORECASE), # YYYYQ1-Q4
+            'yearly': re.compile(r'(\d{4})(?:/|$)', re.IGNORECASE),    # YYYY
         }
-        
-        # 添加日期信息
-        if date_info:
-            path_params.update(date_info)
-        
-        # 格式化路径
-        try:
-            relative_path = archive_config['path_pattern'].format(**path_params)
-        except KeyError as e:
-            raise ValueError(f"Missing required path parameter for {storage_type}: {e}")
-        
-        # 构建完整路径
-        raw_config = self._path_config.get('raw_layer', {})
-        paths_config = raw_config.get('paths', {})
-        archive_subpath = paths_config.get('archive_subpath', 'archive')
-        
-        # 获取文件配置
-        file_config = raw_config.get('file_config', {})
-        filename_template = file_config.get('filename_template', 'data.{file_type}')
-        default_format = file_config.get('default_format', 'parquet')
-        filename = filename_template.format(file_type=default_format)
-        
-        base_path = raw_config.get('base_path', '')
-        full_path = os.path.join(
-            base_path,
-            archive_subpath,
-            relative_path,
-            filename
-        )
-        
-        # 创建目录（如果需要）
-        if create_dirs:
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        
-        return full_path
     
-    def get_norm_path(self, source: DataSource, data_interface: str, stage: str,
-                     create_dirs: bool = False, year: Optional[int] = None) -> str:
-        """获取Norm层数据路径
+    def get_method_file_paths(self, method_name: str) -> List[Tuple[str, str]]:
+        """
+        基于实际文件系统结构动态获取method的文件路径对
+        不再依赖配置文件构造，而是扫描实际存在的目录结构
         
         Args:
-            source: 数据源
-            data_interface: 数据接口名称
-            stage: 处理阶段 (stage_1_merge, stage_2_clean, stage_3_reconcile)
-            create_dirs: 是否创建目录
-            year: 年份，用于DAILY类型的路径生成
+            method_name: method名称
             
         Returns:
-            完整的文件路径
-            
-        Raises:
-            ValueError: 当阶段不支持或配置缺失时
+            文件路径对列表，每个元素为(parquet_path, json_path)的元组
         """
-        # 获取存储类型
-        storage_type = self.config_manager.get_storage_type(source, data_interface)
-        if not storage_type:
-            raise ValueError(f"No storage type found for {source.value}.{data_interface}")
+        # 构建基础搜索路径：base_path/landing/*/method_name
+        # 扫描所有可能的source目录
+        landing_path = os.path.join(self.base_path, "landing")
+        if not os.path.exists(landing_path):
+            return []
         
-        norm_config = self._path_config.get('norm_layer', {})
+        file_pairs = []
         
-        # 获取阶段配置
-        processing_stages = norm_config.get('processing_stages', {})
-        stage_config = processing_stages.get(stage)
-        if not stage_config or not stage_config.get("enabled", True):
-            raise ValueError(f"Stage {stage} is not enabled or configured")
-        
-        # 构建路径模板参数
-        path_params = {
-            'source_name': source.value,
-            'data_interface': data_interface
-        }
-        
-        # 获取路径模式
-        path_pattern = ""
-        if "path_patterns" in stage_config:
-            path_pattern = stage_config["path_patterns"].get(storage_type, "")
-        elif "path_pattern" in stage_config:
-            # 向后兼容旧的path_pattern
-            path_pattern = stage_config.get("path_pattern", "")
-        
-        if not path_pattern:
-            raise ValueError(f"No path pattern found for {stage} with storage type {storage_type}")
-        
-        # 检查DAILY类型是否需要年份参数
-        if storage_type == "DAILY" and "{year}" in path_pattern:
-            if year is None:
-                raise ValueError(f"Year parameter is required for DAILY storage type in {stage}")
-            path_params['year'] = str(year)
-        elif storage_type == "DAILY" and year is not None:
-            # DAILY类型但路径模式不需要年份参数
-            path_params['year'] = str(year)
-        
-        # 格式化路径
-        try:
-            relative_path = path_pattern.format(**path_params)
-        except KeyError as e:
-            raise ValueError(f"Missing required path parameter for {stage}: {e}")
-        
-        # 获取文件配置
-        file_config = stage_config.get('file_config', {})
-        filename_template = file_config.get('filename_template', 'data.parquet')
-        filename = filename_template
-        
-        # 构建完整路径
-        base_path = norm_config.get('base_path', '')
-        full_path = os.path.join(
-            base_path,
-            relative_path,
-            filename
-        )
-        
-        # 创建目录（如果需要）
-        if create_dirs:
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        
-        return full_path
-    
-    def get_all_norm_stage_paths(self, source: DataSource, data_interface: str,
-                                create_dirs: bool = False, year: Optional[int] = None) -> Dict[str, str]:
-        """获取所有Norm层阶段的路径
-        
-        Args:
-            source: 数据源
-            data_interface: 数据接口名称
-            create_dirs: 是否创建目录
-            year: 年份，用于DAILY类型的路径生成
-            
-        Returns:
-            阶段名称到路径的映射字典
-        """
-        norm_config = self._path_config.get('norm_layer', {})
-        processing_stages = norm_config.get('processing_stages', {})
-        stage_paths = {}
-        
-        for stage_name in processing_stages.keys():
-            try:
-                path = self.get_norm_path(source, data_interface, stage_name, create_dirs, year)
-                stage_paths[stage_name] = path
-            except ValueError:
-                # 跳过未启用或配置错误的阶段
+        # 遍历landing下的所有source目录
+        for source_name in os.listdir(landing_path):
+            source_path = os.path.join(landing_path, source_name)
+            if not os.path.isdir(source_path):
                 continue
+                
+            method_path = os.path.join(source_path, method_name)
+            if not os.path.exists(method_path):
+                continue
+            
+            # 递归扫描method目录下的所有子目录，寻找数据文件
+            for root, dirs, files in os.walk(method_path):
+                # 检查是否同时存在parquet和json文件
+                parquet_files = [f for f in files if f.endswith('.parquet')]
+                json_files = [f for f in files if f.endswith('.json')]
+                
+                # 匹配同名文件
+                for parquet_file in parquet_files:
+                    base_name = os.path.splitext(parquet_file)[0]
+                    json_file = base_name + '.json'
+                    
+                    if json_file in json_files:
+                        parquet_path = os.path.join(root, parquet_file)
+                        json_path = os.path.join(root, json_file)
+                        file_pairs.append((parquet_path, json_path))
         
-        return stage_paths
+        return sorted(file_pairs)
     
-    def validate_path(self, path: str, check_exists: bool = False) -> bool:
-        """验证路径是否有效
+    def get_method_file_paths_by_date_range(self, method_name: str, start_date: str, end_date: str) -> List[Tuple[str, str]]:
+        """
+        基于实际文件系统结构和日期范围动态获取文件路径对
+        自动识别日期类型并过滤符合条件的文件
         
         Args:
-            path: 要验证的路径
-            check_exists: 是否检查路径是否存在
+            method_name: method名称
+            start_date: 开始日期，格式为YYYYMMDD
+            end_date: 结束日期，格式为YYYYMMDD
             
         Returns:
-            路径是否有效
+            文件路径对列表，每个元素为(parquet_path, json_path)的元组
+        """
+        # 先获取所有文件路径
+        all_file_pairs = self.get_method_file_paths(method_name)
+        
+        if not all_file_pairs:
+            return []
+        
+        # 解析日期范围
+        try:
+            start_dt = datetime.strptime(start_date, "%Y%m%d")
+            end_dt = datetime.strptime(end_date, "%Y%m%d")
+        except ValueError:
+            return []
+        
+        filtered_pairs = []
+        
+        for parquet_path, json_path in all_file_pairs:
+            # 从路径中提取日期信息
+            date_info = self._extract_date_from_path(parquet_path)
+            
+            if date_info:
+                date_type, date_value = date_info
+                
+                # 根据日期类型判断是否在范围内
+                if self._is_date_in_range(date_type, date_value, start_dt, end_dt):
+                    filtered_pairs.append((parquet_path, json_path))
+        
+        return sorted(filtered_pairs)
+    
+    def _extract_date_from_path(self, file_path: str) -> Optional[Tuple[str, str]]:
+        """
+        从文件路径中提取日期信息
+        
+        Args:
+            file_path: 文件路径
+            
+        Returns:
+            (日期类型, 日期值) 或 None
+        """
+        # 获取相对于base_path的路径部分
+        try:
+            rel_path = os.path.relpath(file_path, self.base_path)
+        except ValueError:
+            return None
+        
+        # 尝试匹配各种日期模式
+        for date_type, pattern in self.date_patterns.items():
+            match = pattern.search(rel_path)
+            if match:
+                if date_type == 'daily':
+                    year_month, day = match.groups()
+                    return (date_type, year_month + day)
+                elif date_type in ['monthly', 'yearly', 'quarterly']:
+                    return (date_type, match.group(1))
+        
+        return None
+    
+    def _is_date_in_range(self, date_type: str, date_value: str, start_dt: datetime, end_dt: datetime) -> bool:
+        """
+        判断日期是否在指定范围内
+        
+        Args:
+            date_type: 日期类型
+            date_value: 日期值
+            start_dt: 开始日期
+            end_dt: 结束日期
+            
+        Returns:
+            是否在范围内
         """
         try:
-            # 检查路径格式
-            Path(path)
+            if date_type == 'daily':
+                # YYYYMMDD格式
+                file_dt = datetime.strptime(date_value, "%Y%m%d")
+                return start_dt <= file_dt <= end_dt
             
-            # 检查是否存在（如果需要）
-            if check_exists:
-                return os.path.exists(path)
+            elif date_type == 'monthly':
+                # YYYYMM格式，检查月份是否在范围内
+                file_dt = datetime.strptime(date_value + "01", "%Y%m%d")
+                # 月末
+                if file_dt.month == 12:
+                    month_end = file_dt.replace(year=file_dt.year + 1, month=1, day=1) - timedelta(days=1)
+                else:
+                    month_end = file_dt.replace(month=file_dt.month + 1, day=1) - timedelta(days=1)
+                
+                return not (month_end < start_dt or file_dt > end_dt)
             
-            return True
-        except (OSError, ValueError):
+            elif date_type == 'quarterly':
+                # YYYYQ1-Q4格式
+                year = int(date_value[:4])
+                quarter = int(date_value[5])
+                
+                # 季度开始和结束月份
+                quarter_start_month = (quarter - 1) * 3 + 1
+                quarter_end_month = quarter * 3
+                
+                quarter_start = datetime(year, quarter_start_month, 1)
+                if quarter_end_month == 12:
+                    quarter_end = datetime(year + 1, 1, 1) - timedelta(days=1)
+                else:
+                    quarter_end = datetime(year, quarter_end_month + 1, 1) - timedelta(days=1)
+                
+                return not (quarter_end < start_dt or quarter_start > end_dt)
+            
+            elif date_type == 'yearly':
+                # YYYY格式
+                year = int(date_value)
+                year_start = datetime(year, 1, 1)
+                year_end = datetime(year, 12, 31)
+                
+                return not (year_end < start_dt or year_start > end_dt)
+            
+            else:
+                # 其他类型（如symbol）不进行日期过滤
+                return True
+                
+        except (ValueError, TypeError):
             return False
     
-    def get_available_storage_types(self) -> List[str]:
-        """获取可用的存储类型列表
-        
-        Returns:
-            存储类型名称列表
+    def get_method_save_path(self, method_name: str) -> str:
         """
-        storage_types = self.config_manager.get_storage_types()
-        return [st for st, config in storage_types.items() 
-                if config.get("enabled", True)]
-    
-    def get_available_norm_stages(self) -> List[str]:
-        """获取可用的Norm层处理阶段列表
-        
-        Returns:
-            阶段名称列表
-        """
-        norm_config = self._path_config.get('norm_layer', {})
-        processing_stages = norm_config.get('processing_stages', {})
-        return [stage for stage, config in processing_stages.items()
-                if config.get("enabled", True)]
-    
-    def get_storage_type_info(self, storage_type: str) -> Optional[Dict[str, Any]]:
-        """获取存储类型的详细信息
+        基于base_path构造保存文件路径
+        路径格式：base_path的父目录/norm/method_name（移除raw部分）
         
         Args:
-            storage_type: 存储类型名称
+            method_name: method名称
             
         Returns:
-            存储类型配置信息，如果不存在则返回None
+            保存文件路径
         """
-        storage_types = self.config_manager.get_storage_types()
-        return storage_types.get(storage_type)
+        # 获取base_path的父目录，然后构造norm路径
+        parent_path = os.path.dirname(self.base_path)  # 移除raw部分
+        norm_data_path = os.path.join(parent_path, "norm", method_name)
+        
+        return norm_data_path
     
-    def get_stage_info(self, stage: str) -> Optional[Dict[str, Any]]:
-        """获取Norm层阶段的详细信息
+    def get_method_save_file_path(self, method_name: str, file_format: str = None) -> str:
+        """
+        获取method的完整保存文件路径
         
         Args:
-            stage: 阶段名称
+            method_name: method名称
+            file_format: 文件格式，如果为None则使用默认格式
             
         Returns:
-            阶段配置信息，如果不存在则返回None
+            完整的保存文件路径
         """
-        norm_config = self._path_config.get('norm_layer', {})
-        processing_stages = norm_config.get('processing_stages', {})
-        return processing_stages.get(stage)
+        if file_format is None:
+            file_format = self.default_format
+        
+        save_dir = self.get_method_save_path(method_name)
+        filename = f"data.{file_format}"
+        
+        return os.path.join(save_dir, filename)
     
-    def get_raw_file_paths(self, source: DataSource, data_type: str, 
-                          time_range: Optional[Union[str, Dict[str, Any]]] = None) -> List[str]:
-        """获取Raw层数据文件路径列表
+    def validate_method_paths(self, method_name: str) -> bool:
+        """
+        验证method的路径配置是否有效
         
         Args:
-            source: 数据源
-            data_type: 数据类型/接口名称
-            time_range: 时间范围参数
-                - 对于DAILY类型: 可以是"202410"(年月)或{"year": 2024, "month": 10}
-                - 对于MONTHLY类型: 可以是"2024"(年份)或{"year": 2024}
-                - 对于SNAPSHOT类型: 忽略此参数
-                
-        Returns:
-            实际存在的文件路径列表
+            method_name: method名称
             
-        Raises:
-            ValueError: 当存储类型不支持或配置缺失时
+        Returns:
+            路径配置是否有效
         """
-        # 获取存储类型
-        storage_type = self.config_manager.get_storage_type(source, data_type)
+        method_info = self.config_manager.get_method_info(method_name)
+        if not method_info:
+            return False
+        
+        storage_type = method_info.get("storage_type")
         if not storage_type:
-            raise ValueError(f"No storage type found for {source.value}.{data_type}")
+            return False
         
-        file_paths = []
+        archive_info = self.config_manager.get_archive_type_info(storage_type)
+        if not archive_info:
+            return False
         
-        if storage_type == "SNAPSHOT":
-            # SNAPSHOT类型直接返回单个文件路径，只检查landing目录
-            raw_config = self._path_config.get('raw_layer', {})
-            base_path = raw_config.get('base_path', '')
-            paths_config = raw_config.get('paths', {})
-            landing_subpath = paths_config.get('landing_subpath', 'landing')
-            
-            # 获取存储类型配置
-            storage_types = self.config_manager.get_storage_types()
-            archive_config = storage_types.get(storage_type)
-            
-            if archive_config:
-                # 构建路径模板参数
-                path_params = {
-                    'source_name': source.value,
-                    'data_type': data_type
-                }
-                
-                try:
-                    relative_path = archive_config['path_pattern'].format(**path_params)
-                    
-                    # 获取文件配置
-                    file_config = raw_config.get('file_config', {})
-                    filename_template = file_config.get('filename_template', 'data.{file_type}')
-                    default_format = file_config.get('default_format', 'parquet')
-                    filename = filename_template.format(file_type=default_format)
-                    
-                    # 只检查landing目录
-                    full_path = os.path.join(
-                        base_path,
-                        landing_subpath,
-                        relative_path,
-                        filename
-                    )
-                    if os.path.exists(full_path):
-                        file_paths.append(full_path)
-                            
-                except (ValueError, KeyError, OSError):
-                    pass
-                
-        elif storage_type == "DAILY":
-            # DAILY类型根据时间范围生成路径列表
-            file_paths = self._get_daily_file_paths(source, data_type, time_range)
-            
-        elif storage_type == "MONTHLY":
-            # MONTHLY类型根据时间范围生成路径列表
-            file_paths = self._get_monthly_file_paths(source, data_type, time_range)
-            
-        else:
-            raise ValueError(f"Unsupported storage type: {storage_type}")
+        # 检查基础路径是否存在
+        if not os.path.exists(self.base_path):
+            return False
         
-        return file_paths
+        return True
     
-    def _get_daily_file_paths(self, source: DataSource, data_type: str, 
-                             time_range: Optional[Union[str, Dict[str, Any]]]) -> List[str]:
-        """获取DAILY类型的文件路径列表"""
-        file_paths = []
+    def get_available_dates(self, method_name: str) -> List[str]:
+        """
+        基于实际文件系统结构获取可用日期列表
+        自动识别日期类型并提取日期信息
         
-        # 解析时间范围
-        if isinstance(time_range, str):
-            # 格式: "202410"
-            if len(time_range) == 6:
-                year = int(time_range[:4])
-                month = int(time_range[4:6])
-                months_to_process = [(year, month)]
-            elif len(time_range) == 4:
-                # 格式: "2024" - 处理整年
-                year = int(time_range)
-                months_to_process = [(year, m) for m in range(1, 13)]
-            else:
-                raise ValueError(f"Invalid time_range format for DAILY: {time_range}")
-        elif isinstance(time_range, dict):
-            year = time_range.get('year')
-            month = time_range.get('month')
-            if year and month:
-                months_to_process = [(year, month)]
-            elif year:
-                months_to_process = [(year, m) for m in range(1, 13)]
-            else:
-                raise ValueError("Invalid time_range dict for DAILY: missing year")
-        else:
-            # 默认处理当前年份
-            current_year = datetime.now().year
-            months_to_process = [(current_year, m) for m in range(1, 13)]
+        Args:
+            method_name: method名称
+            
+        Returns:
+            可用日期列表，格式为YYYYMMDD或其他识别的日期格式
+        """
+        # 获取所有文件路径
+        all_file_pairs = self.get_method_file_paths(method_name)
         
-        # 获取Raw层配置
-        raw_config = self._path_config.get('raw_layer', {})
-        base_path = raw_config.get('base_path', '')
-        paths_config = raw_config.get('paths', {})
-        landing_subpath = paths_config.get('landing_subpath', 'landing')
+        if not all_file_pairs:
+            return []
         
-        # 获取存储类型配置
-        storage_types = self.config_manager.get_storage_types()
-        storage_type = self.config_manager.get_storage_type(source, data_type)
-        archive_config = storage_types.get(storage_type)
+        dates = set()
         
-        if not archive_config:
-            return file_paths
-        
-        # 获取文件配置
-        file_config = raw_config.get('file_config', {})
-        filename_template = file_config.get('filename_template', 'data.{file_type}')
-        default_format = file_config.get('default_format', 'parquet')
-        filename = filename_template.format(file_type=default_format)
-        
-        # 为每个月的每一天生成路径，只检查landing目录
-        for year, month in months_to_process:
-            days_in_month = monthrange(year, month)[1]
-            for day in range(1, days_in_month + 1):
-                year_month = f"{year}{month:02d}"
-                date_info = {
-                    "year_month": year_month,
-                    "day": f"{day:02d}"
-                }
+        for parquet_path, _ in all_file_pairs:
+            # 从路径中提取日期信息
+            date_info = self._extract_date_from_path(parquet_path)
+            
+            if date_info:
+                date_type, date_value = date_info
                 
-                # 构建路径模板参数
-                path_params = {
-                    'source_name': source.value,
-                    'data_type': data_type
-                }
-                path_params.update(date_info)
-                
-                try:
-                    relative_path = archive_config['path_pattern'].format(**path_params)
-                    
-                    # 只检查landing目录
-                    full_path = os.path.join(
-                        base_path,
-                        landing_subpath,
-                        relative_path,
-                        filename
-                    )
-                    if os.path.exists(full_path):
-                        file_paths.append(full_path)
-                            
-                except (ValueError, KeyError, OSError):
-                    continue
+                # 根据日期类型格式化输出
+                if date_type == 'daily':
+                    dates.add(date_value)  # YYYYMMDD
+                elif date_type == 'monthly':
+                    dates.add(date_value)  # YYYYMM
+                elif date_type == 'quarterly':
+                    dates.add(date_value)  # YYYYQ1-Q4
+                elif date_type == 'yearly':
+                    dates.add(date_value)  # YYYY
         
-        return file_paths
-    
-    def _get_monthly_file_paths(self, source: DataSource, data_type: str, 
-                               time_range: Optional[Union[str, Dict[str, Any]]]) -> List[str]:
-        """获取MONTHLY类型的文件路径列表"""
-        file_paths = []
+        # 检查是否是股票代码列表（如果包含000001则认为是股票列表）
+        date_list = sorted(list(dates))
+        if date_list and '000001' in date_list:
+            return []  # 如果是股票列表，返回空列表
         
-        # 获取Raw层配置
-        raw_config = self._path_config.get('raw_layer', {})
-        base_path = raw_config.get('base_path', '')
-        paths_config = raw_config.get('paths', {})
-        landing_subpath = paths_config.get('landing_subpath', 'landing')
-        
-        # 只搜索landing目录
-        search_paths = [
-            os.path.join(base_path, landing_subpath, source.value, data_type)
-        ]
-        
-        # 解析时间范围过滤
-        year_filter = None
-        if isinstance(time_range, str) and len(time_range) == 4:
-            year_filter = int(time_range)
-        elif isinstance(time_range, dict) and 'year' in time_range:
-            year_filter = time_range['year']
-        
-        for search_path in search_paths:
-            if os.path.exists(search_path):
-                # 使用glob递归搜索所有parquet文件
-                pattern = os.path.join(search_path, '**', '*.parquet')
-                found_files = glob.glob(pattern, recursive=True)
-                
-                # 如果有年份过滤，则过滤文件
-                if year_filter:
-                    filtered_files = []
-                    for file_path in found_files:
-                        # 从路径中提取年份信息进行过滤
-                        if str(year_filter) in file_path:
-                            filtered_files.append(file_path)
-                    file_paths.extend(filtered_files)
-                else:
-                    file_paths.extend(found_files)
-        
-        return file_paths
-
-
-# 全局路径管理器实例
-_path_manager_instance = None
-
-
-def get_path_manager() -> PathManager:
-    """获取全局路径管理器实例
-    
-    Returns:
-        PathManager实例
-    """
-    global _path_manager_instance
-    if _path_manager_instance is None:
-        _path_manager_instance = PathManager()
-    return _path_manager_instance
+        return date_list

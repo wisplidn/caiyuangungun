@@ -6,6 +6,7 @@ PlaceholderGenerator - 占位符生成器
 负责根据占位符类型、日期范围和回看参数生成相应的日期列表。
 支持的占位符类型：
 - <TRADE_DATE>: 交易日期
+- <NATURAL_DATE>: 自然日期（所有日期，包括周末和节假日）
 - <MONTHLY_DATE_RANGE>: 月度日期范围
 - <QUARTERLY_DATE>: 季度日期
 - <AK_LISTED_SYMBOL>: AK格式的上市股票代码
@@ -29,6 +30,7 @@ class PlaceholderGenerator:
     # 支持的占位符类型
     SUPPORTED_PLACEHOLDERS = [
         '<TRADE_DATE>',
+        '<NATURAL_DATE>',
         '<MONTHLY_DATE_RANGE>',
         '<QUARTERLY_DATE>',
         '<AK_LISTED_SYMBOL>',
@@ -79,6 +81,8 @@ class PlaceholderGenerator:
         # 3. 根据占位符类型生成日期列表
         if placeholder == '<TRADE_DATE>':
             result = self._generate_trade_dates(normalized_start, normalized_end)
+        elif placeholder == '<NATURAL_DATE>':
+            result = self._generate_natural_dates(normalized_start, normalized_end)
         elif placeholder == '<MONTHLY_DATE_RANGE>':
             result = self._generate_monthly_date_range(normalized_start, normalized_end)
         elif placeholder == '<QUARTERLY_DATE>':
@@ -262,6 +266,32 @@ class PlaceholderGenerator:
         trade_dates.sort(reverse=True)  # 按日期由近至远排序
         
         return {'<TRADE_DATE>': trade_dates}
+    
+    def _generate_natural_dates(self, start_date: str, end_date: str) -> Dict[str, List[str]]:
+        """
+        生成自然日期列表
+        
+        Args:
+            start_date: 开始日期 (YYYYMMDD)
+            end_date: 结束日期 (YYYYMMDD)
+            
+        Returns:
+            包含自然日期列表的字典
+        """
+        start_dt = datetime.strptime(start_date, '%Y%m%d')
+        end_dt = datetime.strptime(end_date, '%Y%m%d')
+        
+        natural_dates = []
+        current_dt = start_dt
+        
+        while current_dt <= end_dt:
+            natural_dates.append(current_dt.strftime('%Y%m%d'))
+            current_dt += timedelta(days=1)
+        
+        # 按日期由近至远排序
+        natural_dates.sort(reverse=True)
+        
+        return {'<NATURAL_DATE>': natural_dates}
     
     def _generate_monthly_date_range(self, start_date: str, end_date: str) -> Dict[str, List[str]]:
         """

@@ -79,7 +79,8 @@ class DataTask:
     """数据采集任务"""
     task_id: str
     source_name: str
-    data_type: str
+    data_type: str  # 用于路径生成的配置键名
+    endpoint: str   # 用于API调用的真实endpoint
     method: str
     params: Dict[str, Any] = field(default_factory=dict)
     priority: TaskPriority = TaskPriority.MEDIUM
@@ -194,9 +195,11 @@ class TaskGenerator:
                 storage_type = block.get('storage_type', '')
                 
                 # 构建PathGenerator所需的参数
+                # 优先使用配置键名(config_key)，如果没有则使用endpoint
+                config_key = block.get('config_key', endpoint)
                 path_params = {
                     'source_name': data_source,
-                    'data_type': endpoint,  # endpoint作为data_type
+                    'data_type': config_key,  # 使用配置键名作为data_type
                     'archive_type': storage_type.upper()  # storage_type作为archive_type
                 }
                 
@@ -208,7 +211,8 @@ class TaskGenerator:
                     date_value = None
                     # 支持多种日期参数名称映射到统一的date参数
                     # 添加 'period' 参数支持，用于处理 fina_indicator_vip 等接口的季度日期
-                    for date_key in ['daily_date', 'monthly_date', 'quarterly_date', 'trade_date', 'month', 'quarter', 'date', 'period','end_date']:
+                    # 添加 'ann_date' 参数支持，用于处理 dividend 等接口的公告日期
+                    for date_key in ['daily_date', 'monthly_date', 'quarterly_date', 'trade_date', 'month', 'quarter', 'date', 'period','end_date', 'ann_date']:
                         if date_key in required_params:
                             date_value = required_params[date_key]
                             break
@@ -587,6 +591,7 @@ class TaskGenerator:
                 base_task_config = {
                     'data_source': source_name,
                     'endpoint': method_config.get('endpoint', method_name),
+                    'config_key': method_name,  # 添加配置键名
                     'description': method_config.get('description', ''),
                     'storage_type': method_config.get('storage_type', ''),
                     'required_params': method_config.get('required_params', {}),
@@ -673,7 +678,9 @@ class TaskGenerator:
                 
                 for method_name, method_config in source_config.get('methods', {}).items():
                     if method_config.get('enable', False):
-                        available_methods.add(method_config.get('endpoint', ''))
+                        # 同时添加配置键名和endpoint作为可用方法
+                        available_methods.add(method_name)  # 配置键名
+                        available_methods.add(method_config.get('endpoint', ''))  # endpoint
                         available_storage_types.add(method_config.get('storage_type', ''))
         
         # 验证data_sources
@@ -726,9 +733,11 @@ class TaskGenerator:
         
         for source_config in config['data_sources'].values():
             if source_config.get('enabled', False):
-                for method_config in source_config.get('methods', {}).values():
+                for method_name, method_config in source_config.get('methods', {}).items():
                     if method_config.get('enable', False):
-                        available_methods.add(method_config.get('endpoint', ''))
+                        # 同时添加配置键名和endpoint作为可用方法
+                        available_methods.add(method_name)  # 配置键名
+                        available_methods.add(method_config.get('endpoint', ''))  # endpoint
                         available_storage_types.add(method_config.get('storage_type', ''))
         
         # 验证输入参数
@@ -763,9 +772,10 @@ class TaskGenerator:
                 if not method_config.get('enable', False):
                     continue
                 
-                # 检查方法过滤
-                if methods and methods != ['all'] and method_config.get('endpoint') not in methods:
-                    continue
+                # 检查方法过滤 - 支持配置键名和endpoint
+                if methods and methods != ['all']:
+                    if method_name not in methods and method_config.get('endpoint') not in methods:
+                        continue
                 
                 # 检查存储类型过滤
                 if storage_types and storage_types != ['all'] and method_config.get('storage_type') not in storage_types:
@@ -835,7 +845,8 @@ class TaskGenerator:
                 task = DataTask(
                     task_id=task_id,
                     source_name=source_name,
-                    data_type=method_config['endpoint'],
+                    data_type=method_name,  # 使用配置键名而不是endpoint
+                    endpoint=method_config.get('endpoint', method_name),  # 添加真实的endpoint
                     method='fetch_data',
                     params=method_config['required_params']
                 )
@@ -845,14 +856,15 @@ class TaskGenerator:
         return data_tasks
     
     def generate_on_demand_task(self, source_name: str, data_type: str, 
-                               method: str, params: Dict[str, Any]) -> DataTask:
+                               method: str, params: Dict[str, Any], endpoint: str = None) -> DataTask:
         """生成按需数据采集任务
         
         Args:
             source_name: 数据源名称
-            data_type: 数据类型
+            data_type: 数据类型（用于路径生成）
             method: 方法名称
             params: 参数字典
+            endpoint: API端点（如果不提供，使用data_type）
             
         Returns:
             DataTask: 数据采集任务
@@ -862,6 +874,7 @@ class TaskGenerator:
             task_id=task_id,
             source_name=source_name,
             data_type=data_type,
+            endpoint=endpoint or data_type,
             method=method,
             params=params
         )
@@ -1123,14 +1136,14 @@ class TaskExecutor:
                 self.logger.warning(f"task.params不是字典类型: {type(task.params)}, 值: {task.params}，转换为空字典")
                 task.params = {}
             
-            # 如果是tushare数据源，读取limitmax配置
+            # 处理tushare数据源的limitmax配置
             if task.source_name.lower() == 'tushare':
                 self.logger.info(f"处理tushare数据源的limitmax配置")
                 limitmax_config = self._load_tushare_limitmax_config()
-                if limitmax_config and task.data_type in limitmax_config.get('endpoint_limits', {}):
-                    endpoint_config = limitmax_config['endpoint_limits'][task.data_type]
+                if limitmax_config and task.endpoint in limitmax_config.get('endpoint_limits', {}):  # 使用endpoint
+                    endpoint_config = limitmax_config['endpoint_limits'][task.endpoint]
                     task.params['limitmax'] = endpoint_config['limitmax']
-                    self.logger.info(f"为tushare任务 {task.data_type} 设置limitmax: {endpoint_config['limitmax']}")
+                    self.logger.info(f"为tushare任务 {task.endpoint} 设置limitmax: {endpoint_config['limitmax']}")
             
             # 处理参数：将列表参数转换为字符串（针对单值列表）
             processed_params = {}
@@ -1147,8 +1160,8 @@ class TaskExecutor:
                     processed_params[key] = value
             
             # 执行数据获取
-            self.logger.info(f"开始执行数据获取: data_type={task.data_type}, params={processed_params}")
-            data = data_source.fetch_data(task.data_type, **processed_params)
+            self.logger.info(f"开始执行数据获取: data_type={task.data_type}, endpoint={task.endpoint}, params={processed_params}")
+            data = data_source.fetch_data(task.endpoint, **processed_params)  # 使用endpoint而不是data_type
             self.logger.info(f"数据获取完成，结果类型: {type(data)}, 是否为空: {data is None or (hasattr(data, 'empty') and data.empty)}")
             if data is not None and hasattr(data, 'shape'):
                 self.logger.info(f"数据形状: {data.shape}")
@@ -1158,8 +1171,8 @@ class TaskExecutor:
                 original_limitmax = task.params.get('limitmax', 3000)
                 updated_limitmax = data_source.limitmax
                 if updated_limitmax > original_limitmax:
-                    self._update_tushare_limitmax_config(task.data_type, updated_limitmax)
-                    self.logger.info(f"更新tushare limitmax配置: {task.data_type} {original_limitmax} -> {updated_limitmax}")
+                    self._update_tushare_limitmax_config(task.endpoint, updated_limitmax)  # 使用endpoint
+                    self.logger.info(f"更新tushare limitmax配置: {task.endpoint} {original_limitmax} -> {updated_limitmax}")
             
             if data is None or (hasattr(data, 'empty') and data.empty):
                 error_msg = f"获取到空数据: {task.source_name}.{task.data_type}"
@@ -1201,12 +1214,17 @@ class TaskExecutor:
         self.logger.info(f"[DEBUG] 任务配置: {task_config}")
         
         # 从配置创建DataTask
-        task_id = f"{task_config['data_source']}_{task_config['endpoint']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # 优先使用配置键名，如果没有则报错
+        config_key = task_config.get('config_key', task_config.get('endpoint', 'unknown'))
+        if config_key == 'unknown':
+            raise ValueError(f"任务配置缺少config_key或endpoint: {task_config}")
+        task_id = f"{task_config['data_source']}_{config_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         task = DataTask(
             task_id=task_id,
             source_name=task_config['data_source'],
-            data_type=task_config['endpoint'],
+            data_type=config_key,  # 使用配置键名而不是endpoint
+            endpoint=task_config.get('endpoint', config_key),  # 添加真实的endpoint
             method='fetch_data',
             params=task_config.get('required_params', {})
         )
@@ -1451,7 +1469,7 @@ class TaskExecutor:
         Returns:
             Optional[Dict[str, Any]]: 配置字典，如果加载失败返回None
         """
-        config_path = Path(__file__).parent.parent / 'config' / 'tushare_limitmax_config.json'
+        config_path = Path(__file__).parent.parent.parent.parent.parent.parent / 'data' / 'config' / 'tushare_limitmax_config.json'
         try:
             if config_path.exists():
                 with open(config_path, 'r', encoding='utf-8') as f:
@@ -1473,7 +1491,7 @@ class TaskExecutor:
         Returns:
             bool: 是否更新成功
         """
-        config_path = Path(__file__).parent.parent / 'config' / 'tushare_limitmax_config.json'
+        config_path = Path(__file__).parent.parent.parent.parent.parent.parent / 'data' / 'config' / 'tushare_limitmax_config.json'
         try:
             # 加载现有配置
             config = self._load_tushare_limitmax_config()
@@ -1778,17 +1796,18 @@ class RawDataService:
     提供完整的数据采集流水线：输入参数 -> 生成任务 -> 执行任务 -> 保存数据
     """
     
-    def __init__(self, config_manager=None):
+    def __init__(self, config_manager=None, force_update=False):
         """初始化RawDataService
         
         Args:
             config_manager: 配置管理器实例
+            force_update: 强制更新标志，传递给TaskGenerator
         """
         self.config_manager = config_manager or get_config_manager()
         self.logger = logging.getLogger(__name__ + '.RawDataService')
         
         # 初始化三个核心组件
-        self.task_generator = TaskGenerator(config_manager=self.config_manager)
+        self.task_generator = TaskGenerator(config_manager=self.config_manager, force_update=force_update)
         self.task_executor = TaskExecutor(config_manager=self.config_manager)
         self.data_saver = DataSaver(config_manager=self.config_manager)
         
@@ -1947,7 +1966,7 @@ class RawDataService:
                         save_result = self.save_data_auto(
                             data=data,
                             source_name=task_block.get('data_source', 'unknown'),
-                            data_type=task_block.get('endpoint', 'unknown'),
+                            data_type=task_block.get('config_key', task_block.get('endpoint', 'unknown')),
                             api_params=api_params,
                             verification_callback=verification_callback,
                             predefined_paths=predefined_paths
@@ -2197,7 +2216,7 @@ class RawDataService:
             record_id = self.task_record_manager.insert_task_record(
                 task_id=task_id,
                 source_name=task_block.get('data_source', 'unknown'),
-                data_type=task_block.get('endpoint', 'unknown'),
+                data_type=task_block.get('config_key', task_block.get('endpoint', 'unknown')),
                 data_md5=data_md5,
                 previous_md5=previous_md5,
                 duration_ms=duration_ms,

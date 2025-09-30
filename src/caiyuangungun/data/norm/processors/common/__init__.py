@@ -6,6 +6,6 @@
 包含通用的数据处理功能，如数据合并、清洗等。
 """
 
-from .data_merger import DataMerger
+from .universal_data_cleaner import UniversalDataCleaner
 
-__all__ = ['DataMerger']
+__all__ = ['UniversalDataCleaner']

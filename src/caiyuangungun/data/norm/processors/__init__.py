@@ -5,3 +5,7 @@ TODO:
 - 导出通用/接口级处理器
 - 在 registry.py 中完成接口到处理器的映射
 """
+
+from .common.universal_data_cleaner import UniversalDataCleaner
+
+__all__ = ['UniversalDataCleaner']

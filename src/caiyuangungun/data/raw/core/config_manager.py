@@ -42,9 +42,11 @@ class ConfigManager:
         if config_dir := os.getenv(f"{self.env_prefix}CONFIG_DIR"):
             return Path(config_dir)
             
-        # 使用当前文件所在目录的config子目录
+        # 使用项目根目录下的data/config目录
         current_dir = Path(__file__).parent
-        return current_dir.parent / "config"
+        # 从 src/caiyuangungun/data/raw/core 向上找到项目根目录
+        project_root = current_dir.parent.parent.parent.parent.parent
+        return project_root / "data" / "config"
         
     def _load_configs(self) -> None:
         """加载所有JSON配置文件"""

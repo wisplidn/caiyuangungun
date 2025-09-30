@@ -164,20 +164,30 @@ class DataSourceManager:
             try:
                 module = importlib.import_module(module_path)
             except ImportError as e:
-                # 如果直接导入失败，尝试添加当前目录到路径
-                if module_path.startswith('sources.'):
-                    try:
-                        # 尝试从当前目录的sources模块导入
-                        import sys
-                        from pathlib import Path
-                        current_dir = Path(__file__).parent.parent
-                        if str(current_dir) not in sys.path:
-                            sys.path.insert(0, str(current_dir))
-                        module = importlib.import_module(module_path)
-                    except ImportError:
-                        raise ImportError(f"无法导入模块 {module_path}: {e}")
-                else:
-                    raise ImportError(f"无法导入模块 {module_path}: {e}")
+                # 如果直接导入失败，尝试添加项目路径
+                import sys
+                from pathlib import Path
+                
+                # 添加项目src目录到Python路径
+                project_src_root = Path(__file__).parent.parent.parent.parent.parent
+                if str(project_src_root) not in sys.path:
+                    sys.path.insert(0, str(project_src_root))
+                
+                try:
+                    module = importlib.import_module(module_path)
+                except ImportError as e2:
+                    # 如果还是失败，尝试相对导入
+                    if module_path.startswith('sources.'):
+                        try:
+                            # 尝试从当前目录的sources模块导入
+                            current_dir = Path(__file__).parent.parent
+                            if str(current_dir) not in sys.path:
+                                sys.path.insert(0, str(current_dir))
+                            module = importlib.import_module(module_path)
+                        except ImportError:
+                            raise ImportError(f"无法导入模块 {module_path}: 原始错误: {e}, 相对导入错误: {e2}")
+                    else:
+                        raise ImportError(f"无法导入模块 {module_path}: 原始错误: {e}, 添加路径后错误: {e2}")
                 
             source_class: Type[BaseDataSource] = getattr(module, class_name)
             
