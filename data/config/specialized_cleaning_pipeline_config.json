@@ -1,0 +1,282 @@
+{
+  "fin_bs_processor": {
+    "description": "资产负债表数据专用清洗流程",
+    "module_path": "caiyuangungun.data.norm.processors.financials.fin_bs_processor",
+    "class_name": "FinBSProcessor",
+    "input_path": "data/norm/balancesheet/merged/balancesheet.parquet",
+    "output_path": "data/norm/balancesheet/cleaned/balancesheet.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "handle_01_records",
+        "description": "处理0-1组合重复行：按ts_code、end_date、f_ann_date分组，检查update_flag是否为0-1组合并保留update_flag=1的记录",
+        "category": "行处理",
+        "required_fields": ["ts_code", "end_date", "f_ann_date", "update_flag"]
+      },
+      {
+        "function": "handle_11_records",
+        "description": "处理1-1组合重复行：按ts_code、end_date、f_ann_date分组，检查update_flag是否为1-1组合，保留ann_date更新的一行，如果ann_date一致则全部保留",
+        "category": "行处理",
+        "required_fields": ["ts_code", "end_date", "f_ann_date", "update_flag", "ann_date"]
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+end_date+f_ann_date组合是否存在重复，如果存在重复记录则报错",
+        "category": "质检",
+        "required_fields": ["ts_code", "end_date", "f_ann_date"]
+      },
+      {
+        "function": "validate_relationship_groups",
+        "description": "勾稽关系验证：检查各个分组的层级1求和与汇总项之间的差异，如果触发3%阈值则报错",
+        "category": "质检",
+        "required_fields": ["comp_type"],
+        "config_file": "data/config/financial_statements_audit_config.json"
+      },
+      {
+        "function": "rename_columns_by_audit_config",
+        "description": "根据稽核配置文件重命名列：将Tushare英文字段名重命名为标准化字段名",
+        "category": "输出处理",
+        "required_fields": [],
+        "config_file": "data/config/balance_sheet_audit_config.json"
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，只保留指定字段：ts_code、f_ann_date、end_date、file_path、file_md5以及配置文件中存在的列",
+        "category": "输出处理",
+        "required_fields": ["ts_code", "f_ann_date", "end_date", "file_path", "file_md5"]
+      }
+    ]
+  },
+  "fin_cf_processor": {
+    "description": "现金流量表数据专用清洗流程，包含行处理、列处理、质检和输出等完整步骤",
+    "module_path": "caiyuangungun.data.norm.processors.financials.fin_cf_processor",
+    "class_name": "FinCFProcessor",
+    "input_path": "data/norm/cashflow/merged/cashflow_y.parquet",
+    "output_path": "data/norm/cashflow/cleaned/cashflow_y.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "drop_columns_and_duplicates",
+        "description": "剔除free_cashflow列，然后对所有列执行去重",
+        "category": "行处理",
+        "required_fields": ["free_cashflow"]
+      },
+      {
+        "function": "handle_01_records",
+        "description": "处理更新重复行：按ts_code、end_date、f_ann_date分组，检查重复情况。单条记录保留，两条记录检查update_flag是否为0-1组合并保留update_flag=1的记录，超过两条记录则报错",
+        "category": "行处理",
+        "required_fields": ["ts_code", "end_date", "f_ann_date", "update_flag"]
+      },
+      {
+        "function": "validate_relationship_groups",
+        "description": "勾稽关系验证：检查各个分组的层级1求和与汇总项之间的差异，如果触发3%阈值则报错",
+        "category": "质检",
+        "required_fields": ["comp_type"],
+        "config_file": "data/config/financial_statements_audit_config.json"
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+end_date+f_ann_date组合是否存在重复，如果存在重复记录则报错，确保数据的唯一性",
+        "category": "质检",
+        "required_fields": ["ts_code", "end_date", "f_ann_date"]
+      },
+      {
+        "function": "rename_columns_by_audit_config",
+        "description": "根据稽核配置文件重命名列：将Tushare英文字段名重命名为标准化字段名",
+        "category": "输出处理",
+        "required_fields": [],
+        "config_file": "data/config/financial_statements_audit_config.json"
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，只保留指定字段：ts_code、f_ann_date、end_date、file_path、file_md5以及配置文件中存在的列",
+        "category": "输出处理",
+        "required_fields": ["ts_code", "f_ann_date", "end_date", "file_path", "file_md5"]
+      }
+    ]
+  },
+  "fin_indicator_processor": {
+    "description": "财务指标数据专用清洗流程",
+    "module_path": "caiyuangungun.data.norm.processors.financials.fin_indicator_processor",
+    "class_name": "FinIndicatorProcessor",
+    "input_path": "data/norm/fina_indicator/merged/fina_indicator_vip.parquet",
+    "output_path": "data/norm/fina_indicator/cleaned/fina_indicator_vip.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "remove_empty_ann_date",
+        "description": "剔除ann_date为空的行，确保每条记录都有有效的公告日期",
+        "category": "行处理",
+        "required_fields": ["ann_date"]
+      },
+      {
+        "function": "drop_columns_and_duplicates",
+        "description": "剔除fcff、fcfe、fcff_ps、fcfe_ps列，然后对所有列执行去重",
+        "category": "行处理",
+        "required_fields": ["fcff", "fcfe", "fcff_ps", "fcfe_ps"]
+      },
+      {
+        "function": "handle_01_records",
+        "description": "处理更新重复行：按ts_code、end_date、ann_date分组，检查重复情况。单条记录保留，两条记录检查update_flag是否为0-1组合并保留update_flag=1的记录，超过两条记录则报错，不用fanndate是因为财务指标数据源没有fanndate",
+        "category": "行处理",
+        "required_fields": ["ts_code", "end_date", "ann_date", "update_flag"]
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+end_date+ann_date组合是否存在重复，如果存在重复记录则报错",
+        "category": "质检",
+        "required_fields": ["ts_code", "end_date", "ann_date"]
+      },
+      {
+        "function": "rename_financial_indicator_columns",
+        "description": "根据稽核配置文件重命名财务指标字段：将Tushare英文字段名重命名为标准化字段名，包括非经常性损益、扣非净利润、利息费用、折旧与摊销等",
+        "category": "输出处理",
+        "required_fields": [],
+        "config_file": "data/config/financial_statements_audit_config.json"
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，按指定顺序保留字段",
+        "category": "输出处理",
+        "required_fields": []
+      }
+    ]
+  },
+  "fin_is_processor": {
+    "description": "利润表数据专用清洗流程，包含行处理、列处理、质检和输出等完整步骤",
+    "module_path": "caiyuangungun.data.norm.processors.financials.fin_is_processor",
+    "class_name": "FinISProcessor",
+    "input_path": "data/norm/income_statement/merged/income_y.parquet",
+    "output_path": "data/norm/income_statement/cleaned/income_y.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "drop_columns_and_duplicates",
+        "description": "剔除ebit列和ebitda列，然后对所有剩余列执行删除重复行操作，清理数据冗余",
+        "category": "行处理",
+        "required_fields": ["ebit", "ebitda"]
+      },
+      {
+        "function": "handle_01_records",
+        "description": "处理更新重复行：按ts_code、end_date、f_ann_date分组，检查重复情况。单条记录保留，两条记录检查update_flag是否为0-1组合并保留update_flag=1的记录，超过两条记录则报错",
+        "category": "行处理",
+        "required_fields": ["ts_code", "end_date", "f_ann_date", "update_flag"]
+      },
+      {
+        "function": "create_assets_impair_loss_fixed",
+        "description": "创建资产减值损失修正列：如果end_date>=20190630，则等于assets_impair_loss；否则等于-1*assets_impair_loss。这是为了统一不同会计准则下的科目方向",
+        "category": "列处理",
+        "required_fields": ["end_date", "assets_impair_loss"]
+      },
+      {
+        "function": "create_credit_impa_loss_fixed",
+        "description": "创建信用减值损失修正列：如果end_date>=20190630，则等于credit_impa_loss；否则等于-1*credit_impa_loss。这是为了统一不同会计准则下的科目方向",
+        "category": "列处理",
+        "required_fields": ["end_date", "credit_impa_loss"]
+      },
+      {
+        "function": "create_total_opcost_fixed",
+        "description": "创建营业总成本修正列：如果total_opcost不为空则使用原值，否则计算total_cogs+credit_impa_loss_fixed+assets_impair_loss_fixed。确保营业总成本数据的完整性",
+        "category": "列处理",
+        "required_fields": ["total_opcost", "total_cogs", "credit_impa_loss_fixed", "assets_impair_loss_fixed"]
+      },
+      {
+        "function": "rename_fixed_columns",
+        "description": "重命名修正列：将total_opcost_fixed、credit_impa_loss_fixed、assets_impair_loss_fixed三列去掉_fixed后缀，恢复为标准字段名",
+        "category": "输出处理",
+        "required_fields": ["total_opcost_fixed", "credit_impa_loss_fixed", "assets_impair_loss_fixed"]
+      },
+      {
+        "function": "validate_relationship_groups",
+        "description": "勾稽关系验证：检查各个分组的层级1求和与汇总项之间的差异，如果触发3%阈值则报错",
+        "category": "质检",
+        "required_fields": ["comp_type"],
+        "config_file": "data/config/financial_statements_audit_config.json"
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+end_date+f_ann_date组合是否存在重复，如果存在重复记录则报错，确保数据的唯一性",
+        "category": "质检",
+        "required_fields": ["ts_code", "end_date", "f_ann_date"]
+      },
+      {
+        "function": "rename_columns_by_audit_config",
+        "description": "根据稽核配置文件重命名列：将Tushare英文字段名重命名为标准化字段名",
+        "category": "输出处理",
+        "required_fields": []
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，只保留指定字段：ts_code、f_ann_date、end_date、file_path、file_md5以及配置文件中存在的列",
+        "category": "输出处理",
+        "required_fields": ["ts_code", "f_ann_date", "end_date", "file_path", "file_md5"]
+      }
+    ]
+  },
+  "dividend_processor": {
+    "description": "分红数据专用清洗流程",
+    "module_path": "caiyuangungun.data.norm.processors.corp_actions.dividend_processor",
+    "class_name": "DividendProcessor",
+    "input_path": "data/norm/dividend/merged/dividend.parquet",
+    "output_path": "data/norm/dividend/cleaned/dividend.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "filter_implementation_only",
+        "description": "只保留div_proc为'实施'的记录，去除预案和股东大会通过等状态，避免重复记录",
+        "category": "行处理",
+        "required_fields": ["div_proc"]
+      },
+      {
+        "function": "handle_duplicate_records",
+        "description": "处理重复记录：取imp_ann_date最新的一条，如果相同则取第一条，如果cash_div_tax差异超过10%则全部保留等待报错预警",
+        "category": "行处理",
+        "required_fields": ["ts_code", "end_date", "ann_date", "imp_ann_date", "cash_div_tax"]
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+end_date+ann_date组合是否存在重复，如果存在重复记录则报错",
+        "category": "质检",
+        "required_fields": ["ts_code", "end_date", "ann_date"]
+      },
+      {
+        "function": "rename_columns",
+        "description": "根据配置文件重命名列：将Tushare英文字段名重命名为标准化字段名",
+        "category": "输出处理",
+        "required_fields": [],
+        "config_file": "data/config/column_rename_mapping.json"
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，保留所有字段",
+        "category": "输出处理",
+        "required_fields": []
+      }
+    ]
+  }
+}
