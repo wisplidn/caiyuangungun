@@ -84,8 +84,20 @@ class ProcessorService:
             module = importlib.import_module(module_path)
             processor_class = getattr(module, class_name)
             
-            # 创建实例 - 传递完整的processor配置给处理器
+            # 创建实例 - 传递完整的processor配置给处理器（包含稽核配置和统一字段配置）
             processor_config = self.config_manager.get_processor_config(processor_name)
+            
+            # 添加统一字段配置
+            unified_field_config = self.config_manager.get_unified_field_config()
+            if unified_field_config:
+                processor_config['unified_field_config'] = unified_field_config
+            
+            logger.info(f"传递给处理器的配置包含: {list(processor_config.keys())}")
+            if 'audit_configs' in processor_config:
+                logger.info(f"稽核配置: {list(processor_config['audit_configs'].keys())}")
+            if 'unified_field_config' in processor_config:
+                logger.info(f"统一字段配置节: {list(processor_config['unified_field_config'].keys())}")
+            
             processor_instance = processor_class(config=processor_config)
             
             # 缓存实例

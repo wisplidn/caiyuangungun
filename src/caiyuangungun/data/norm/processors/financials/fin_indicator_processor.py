@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
-import json
 import pandas as pd
-import numpy as np
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 import logging
-import time 
-from datetime import datetime
+
+from caiyuangungun.data.norm.core.base_processor import BaseProcessor
 
 # 配置日志
 logging.basicConfig(
@@ -20,46 +17,114 @@ logging.basicConfig(
 logger = logging.getLogger('fin_indicator_processor')
 
 
-class FinIndicatorProcessor:
-    """财务指标数据处理器"""
+class FinIndicatorProcessor(BaseProcessor):
+    """财务指标数据处理器 - 继承基础处理器，不需要勾稽关系验证"""
     
     def __init__(self, config: dict):
-        """
-        初始化处理器
+        super().__init__(config)
         
-        Args:
-            config: 完整的processor配置字典
-        """
-        self.config = config
-        self.project_root = Path(config.get('project_root', Path(__file__).parent.parent.parent.parent.parent))
-        self.cleaning_functions = self._register_cleaning_functions()
+        # 扩展清洗函数 - 添加财务指标特有的功能
+        self.cleaning_functions.update(self._register_indicator_cleaning_functions())
+        
+        # 财务指标处理器需要稽核配置来进行字段重命名
+        self._validate_basic_config()
         
         logger.info("FinIndicatorProcessor初始化完成")
     
-    def _register_cleaning_functions(self):
-        """注册清洗函数"""
+    def _register_indicator_cleaning_functions(self):
+        """注册财务指标专用清洗函数"""
         return {
-            'remove_empty_ts_code': self.remove_empty_ts_code,
             'remove_empty_ann_date': self.remove_empty_ann_date,
             'drop_columns_and_duplicates': self.drop_columns_and_duplicates,
-            'handle_01_records': self.handle_01_records,
-            'validate_unique_records': self.validate_unique_records,
-            'output_parquet_file': self.output_parquet_file
+            'rename_financial_indicator_columns': self.rename_financial_indicator_columns,
         }
     
-    def remove_empty_ts_code(self, df: pd.DataFrame) -> pd.DataFrame:
-        """移除ts_code为空的行"""
-        logger.info("开始移除ts_code为空的行")
+    def _validate_basic_config(self):
+        """验证基本配置是否存在"""
+        if not hasattr(self, 'config') or not self.config:
+            raise ValueError("未找到配置：config为空")
         
-        initial_count = len(df)
-        # 移除ts_code为空或NaN的行
-        df_cleaned = df.dropna(subset=['ts_code'])
-        df_cleaned = df_cleaned[df_cleaned['ts_code'].str.strip() != '']
+        # 财务指标处理器需要稽核配置来进行字段重命名
+        if 'audit_configs' in self.config and 'financial_statements_audit' in self.config['audit_configs']:
+            audit_configs = self.config['audit_configs']['financial_statements_audit']
+            if 'financial_indicators' in audit_configs:
+                logger.info(f"稽核配置验证通过，包含{len(audit_configs['financial_indicators'])}个财务指标字段配置")
+            else:
+                logger.warning("稽核配置中缺少financial_indicators部分")
+        else:
+            logger.warning("未找到稽核配置，字段重命名功能将跳过")
         
-        removed_count = initial_count - len(df_cleaned)
-        logger.info(f"移除了{removed_count}行ts_code为空的数据，剩余{len(df_cleaned)}行")
+        # 检查基本的路径配置
+        required_keys = ['input_path', 'output_path', 'cleaning_pipeline']
+        missing_keys = [key for key in required_keys if key not in self.config]
         
-        return df_cleaned
+        if missing_keys:
+            logger.warning(f"缺少配置项: {missing_keys}，将使用默认值")
+        
+        logger.info("基本配置验证通过")
+    
+    def _get_config_section(self) -> str:
+        """获取配置节名称"""
+        return 'financial_indicators'
+    
+    def _get_debug_dir(self) -> Path:
+        """获取debug目录路径"""
+        return self.project_root / "data" / "norm" / "fina_indicator" / "debug"
+    
+    def _get_audit_config(self) -> Optional[dict]:
+        """获取稽核配置"""
+        if hasattr(self, 'config') and 'audit_configs' in self.config:
+            audit_configs = self.config['audit_configs']
+            if 'financial_statements_audit' in audit_configs:
+                full_audit_config = audit_configs['financial_statements_audit']
+                # 提取financial_indicators部分
+                if 'financial_indicators' in full_audit_config:
+                    return full_audit_config['financial_indicators']
+        return None
+    
+    def _get_output_fields(self, df: pd.DataFrame) -> List[str]:
+        """获取财务指标输出字段列表"""
+        # 获取稽核配置中的字段
+        audit_columns = set()
+        audit_config = self._get_audit_config()
+        
+        if audit_config:
+            # 获取重命名后的字段名，并保持原始顺序
+            audit_field_order = []
+            for tushare_name, config in audit_config.items():
+                renamed_field = config.get('renamed_field', tushare_name)
+                audit_columns.add(renamed_field)
+                audit_field_order.append(renamed_field)
+            
+            logger.info(f"从稽核配置中获取到{len(audit_columns)}个字段")
+        else:
+            audit_field_order = []
+        
+        # 必须保留的基础字段（按指定顺序）- 财务指标使用ann_date而不是f_ann_date
+        required_fields = ['ts_code', 'ann_date', 'end_date', 'file_path', 'file_md5']
+        
+        # 添加用于处理的字段
+        processing_fields = ['update_flag']
+        
+        # 按顺序构建字段列表：1.指定字段在前，2.处理字段，3.配置字段在后
+        ordered_fields = []
+        
+        # 先添加必须字段（存在的）
+        for field in required_fields:
+            if field in df.columns:
+                ordered_fields.append(field)
+        
+        # 添加处理用字段（存在的）
+        for field in processing_fields:
+            if field in df.columns and field not in ordered_fields:
+                ordered_fields.append(field)
+        
+        # 再添加稽核配置字段（按配置顺序，排除已添加的）
+        for field in audit_field_order:
+            if field in df.columns and field not in ordered_fields:
+                ordered_fields.append(field)
+        
+        return ordered_fields
     
     def remove_empty_ann_date(self, df: pd.DataFrame) -> pd.DataFrame:
         """移除ann_date为空的行"""
@@ -98,183 +163,33 @@ class FinIndicatorProcessor:
         
         return df_deduplicated
     
-    def handle_01_records(self, df: pd.DataFrame) -> pd.DataFrame:
-        """处理0-1组合的重复记录 - 超高性能优化版本"""
-        logger.info("开始处理0-1组合重复记录")
+    def rename_financial_indicator_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """根据稽核配置文件重命名财务指标字段：将Tushare英文字段名重命名为标准化字段名"""
+        logger.info("开始根据稽核配置文件重命名财务指标字段")
         
-        df = df.copy()
+        # 获取稽核配置
+        audit_config = self._get_audit_config()
         
-        # 1. 早期筛选 - 只对可能有重复的记录进行groupby
-        start_time = time.time()
-        
-        # 先找出所有可能的重复组合键
-        key_counts = df.groupby(['ts_code', 'end_date', 'ann_date']).size()
-        potential_duplicates = key_counts[key_counts == 2].index
-        
-        if len(potential_duplicates) == 0:
-            logger.info("没有重复记录，直接返回原数据")
+        if not audit_config:
+            logger.warning("未找到财务指标稽核配置，跳过字段重命名")
             return df
         
-        # 只对可能重复的记录进行详细分析
-        potential_mask = df.set_index(['ts_code', 'end_date', 'ann_date']).index.isin(potential_duplicates)
-        potential_df = df[potential_mask]
+        # 构建重命名映射
+        rename_mapping = {}
+        for tushare_name, config in audit_config.items():
+            renamed_field = config.get('renamed_field')
+            if renamed_field and tushare_name in df.columns:
+                rename_mapping[tushare_name] = renamed_field
         
-        # 2. 高效的01组合识别 - 使用数值转换加速比较
-        # 临时转换为数值进行快速计算
-        potential_df_numeric = potential_df.copy()
-        potential_df_numeric['update_flag_num'] = potential_df_numeric['update_flag'].astype(int)
-        
-        # 只计算必要的统计信息
-        group_stats = potential_df_numeric.groupby(['ts_code', 'end_date', 'ann_date']).agg({
-            'update_flag_num': ['min', 'max', 'sum']
-        }).reset_index()
-        
-        # 扁平化列名
-        group_stats.columns = ['ts_code', 'end_date', 'ann_date', 'min_flag', 'max_flag', 'sum_flag']
-        
-        # 01组合的特征：min=0, max=1, sum=1 (0+1=1)
-        target_groups = group_stats[
-            (group_stats['min_flag'] == 0) & 
-            (group_stats['max_flag'] == 1) & 
-            (group_stats['sum_flag'] == 1)
-        ]
-        
-        calc_time = time.time() - start_time
-        logger.info(f"01组合计算完成，耗时: {calc_time:.4f}秒，发现符合条件的0-1组合: {len(target_groups)} 个")
-        
-        if len(target_groups) == 0:
-            logger.info("没有符合条件的0-1组合，直接返回原数据")
+        if not rename_mapping:
+            logger.info("没有需要重命名的字段")
             return df
         
-        # 3. 01组合数据处理 - 完全向量化，无遍历
-        process_start_time = time.time()
+        # 执行重命名
+        df_renamed = df.rename(columns=rename_mapping)
         
-        # 创建多重索引用于高效匹配
-        target_groups_set = set(zip(target_groups['ts_code'], target_groups['end_date'], target_groups['ann_date']))
-        
-        # 向量化创建组合键
-        df_keys = pd.Series(list(zip(df['ts_code'], df['end_date'], df['ann_date'])), index=df.index)
-        
-        # 向量化判断是否为目标组
-        is_target_mask = df_keys.isin(target_groups_set)
-        
-        # 向量化筛选：对于目标组，只保留update_flag='1'的记录；对于非目标组，全部保留
-        keep_mask = (~is_target_mask) | ((is_target_mask) & (df['update_flag'] == '1'))
-        
-        # 直接筛选结果
-        result_df = df[keep_mask].copy()
-        
-        process_time = time.time() - process_start_time
-        logger.info(f"01组合数据处理完成，耗时: {process_time:.4f}秒")
-        
-        total_time = calc_time + process_time
-        logger.info(f"处理0-1组合完成，总耗时: {total_time:.4f}秒，最终行数: {len(result_df)} (原始: {len(df)})")
-        
-        return result_df
-    
-    def validate_unique_records(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        重复记录质检：检查ts_code+end_date+ann_date组合是否存在重复
-        
-        Args:
-            df: 输入DataFrame
-            
-        Returns:
-            原始DataFrame（如果通过质检）
-            
-        Raises:
-            ValueError: 如果存在重复记录
-        """
-        logger.info("开始重复记录质检")
-        
-        # 检查关键字段组合的重复情况
-        key_columns = ['ts_code', 'end_date', 'ann_date']
-        
-        # 检查是否存在重复
-        duplicates = df.duplicated(subset=key_columns, keep=False)
-        duplicate_count = duplicates.sum()
-        
-        if duplicate_count > 0:
-            # 获取重复记录的详细信息
-            duplicate_records = df[duplicates]
-            logger.error(f"发现{duplicate_count}条重复记录")
-            
-            # 创建debug文件夹
-            debug_dir = Path("debug")
-            debug_dir.mkdir(exist_ok=True)
-            
-            # 输出重复记录到CSV文件
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            csv_filename = f"duplicate_records_fin_indicator_{timestamp}.csv"
-            csv_path = debug_dir / csv_filename
-            
-            duplicate_records.to_csv(csv_path, index=False, encoding='utf-8-sig')
-            logger.error(f"重复记录详情已输出到: {csv_path}")
-            
-            # 在日志中显示前10条重复记录的关键信息
-            unique_duplicates = duplicate_records[key_columns].drop_duplicates()
-            logger.error("重复记录详情:")
-            for _, record in unique_duplicates.head(10).iterrows():  # 只显示前10条
-                logger.error(f"  ts_code={record['ts_code']}, end_date={record['end_date']}, ann_date={record['ann_date']}")
-            
-            raise ValueError(f"数据质检失败：发现{duplicate_count}条重复记录（ts_code+end_date+ann_date组合重复）")
-        
-        logger.info("重复记录质检通过")
-        return df
-    
-    def output_parquet_file(self, df: pd.DataFrame, output_path: str = None) -> pd.DataFrame:
-        """输出parquet文件，保留全部字段"""
-        logger.info("开始输出parquet文件")
-        
-        # 确定输出路径
-        if output_path is None:
-            output_path = self.config.get('output_path', 'data/norm/fina_indicator/cleaned/fina_indicator_vip.parquet')
-        
-        # 确保输出目录存在
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        
-        # 输出parquet文件，保留所有字段
-        df.to_parquet(output_path, index=False)
-        
-        logger.info(f"parquet文件已输出到: {output_path}")
-        logger.info(f"输出数据形状: {df.shape}")
-        logger.info(f"输出字段数: {len(df.columns)}")
-        
-        # 返回原始的完整DataFrame
-        return df
-    
-    def process_pipeline(self, input_path: str = None, output_path: str = None) -> pd.DataFrame:
-        """执行完整的数据清洗流程"""
-        logger.info("开始执行财务指标数据清洗流程")
-        
-        # 读取数据
-        if input_path is None:
-            input_path = self.config.get('input_path', 'data/raw/fina_indicator/fina_indicator_vip.parquet')
-        
-        logger.info(f"读取数据文件: {input_path}")
-        df = pd.read_parquet(input_path)
-        logger.info(f"原始数据形状: {df.shape}")
-        
-        # 获取清洗流程配置
-        pipeline_steps = self.config.get('cleaning_pipeline', [])
-        
-        # 执行每个清洗步骤
-        for step in pipeline_steps:
-            function_name = step.get('function')
-            if function_name in self.cleaning_functions:
-                logger.info(f"执行清洗步骤: {function_name}")
-                if function_name == 'output_parquet_file':
-                    df = self.cleaning_functions[function_name](df, output_path)
-                else:
-                    df = self.cleaning_functions[function_name](df)
-                logger.info(f"步骤完成，当前数据形状: {df.shape}")
-            else:
-                logger.warning(f"未找到清洗函数: {function_name}")
-        
-        logger.info("财务指标数据清洗流程完成")
-        return df
+        logger.info(f"重命名了{len(rename_mapping)}个字段")
+        return df_renamed
 
 
 def main():
@@ -290,6 +205,7 @@ def main():
             {'function': 'drop_columns_and_duplicates'},
             {'function': 'handle_01_records'},
             {'function': 'validate_unique_records'},
+            {'function': 'rename_financial_indicator_columns'},
             {'function': 'output_parquet_file'}
         ]
     }

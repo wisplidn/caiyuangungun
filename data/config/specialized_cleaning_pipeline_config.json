@@ -278,5 +278,125 @@
         "required_fields": []
       }
     ]
+  },
+  "daily_processor": {
+    "description": "日线行情数据专用清洗流程",
+    "module_path": "caiyuangungun.data.norm.processors.quotes.daily_processor",
+    "class_name": "DailyProcessor",
+    "input_path": "data/norm/daily_data/merged/daily.parquet",
+    "output_path": "data/norm/daily_data/cleaned/daily.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "filter_listing_dates",
+        "description": "剔除上市前和退市后的数据，只保留上市当天及之后、退市前的有效交易数据",
+        "category": "行处理",
+        "required_fields": ["trade_date", "list_date"]
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+trade_date组合是否存在重复，如果存在重复记录则报错",
+        "category": "质检",
+        "required_fields": ["ts_code", "trade_date"]
+      },
+      {
+        "function": "rename_columns",
+        "description": "根据配置文件重命名列：将Tushare字段名重命名为标准化字段名",
+        "category": "输出处理",
+        "required_fields": [],
+        "config_file": "data/config/rename_config.json"
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，只保留核心字段",
+        "category": "输出处理",
+        "required_fields": []
+      }
+    ]
+  },
+  "adj_factor_processor": {
+    "description": "复权因子数据专用清洗流程",
+    "module_path": "caiyuangungun.data.norm.processors.quotes.adj_factor_processor",
+    "class_name": "AdjFactorProcessor",
+    "input_path": "data/norm/daily_data/merged/adj_factor.parquet",
+    "output_path": "data/norm/daily_data/cleaned/adj_factor.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "filter_listing_dates",
+        "description": "剔除上市前和退市后的数据，只保留上市当天及之后、退市前的有效交易数据",
+        "category": "行处理",
+        "required_fields": ["trade_date", "list_date"]
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+trade_date组合是否存在重复，如果存在重复记录则报错",
+        "category": "质检",
+        "required_fields": ["ts_code", "trade_date"]
+      },
+      {
+        "function": "rename_columns",
+        "description": "根据配置文件重命名列：将Tushare字段名重命名为标准化字段名",
+        "category": "输出处理",
+        "required_fields": [],
+        "config_file": "data/config/rename_config.json"
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，只保留核心字段",
+        "category": "输出处理",
+        "required_fields": []
+      }
+    ]
+  },
+  "daily_basic_processor": {
+    "description": "每日基本指标数据专用清洗流程",
+    "module_path": "caiyuangungun.data.norm.processors.quotes.daily_basic_processor",
+    "class_name": "DailyBasicProcessor",
+    "input_path": "data/norm/daily_data/merged/daily_basic.parquet",
+    "output_path": "data/norm/daily_data/cleaned/daily_basic.parquet",
+    "cleaning_pipeline": [
+      {
+        "function": "remove_empty_ts_code",
+        "description": "剔除ts_code为空的行，确保每条记录都有有效的股票代码标识",
+        "category": "行处理",
+        "required_fields": ["ts_code"]
+      },
+      {
+        "function": "filter_listing_dates",
+        "description": "剔除上市前和退市后的数据，只保留上市当天及之后、退市前的有效交易数据",
+        "category": "行处理",
+        "required_fields": ["trade_date", "list_date"]
+      },
+      {
+        "function": "validate_unique_records",
+        "description": "重复记录质检：检查ts_code+trade_date组合是否存在重复，如果存在重复记录则报错",
+        "category": "质检",
+        "required_fields": ["ts_code", "trade_date"]
+      },
+      {
+        "function": "rename_columns",
+        "description": "根据配置文件重命名列：将Tushare字段名重命名为标准化字段名",
+        "category": "输出处理",
+        "required_fields": [],
+        "config_file": "data/config/rename_config.json"
+      },
+      {
+        "function": "output_parquet_file",
+        "description": "输出parquet文件，只保留核心字段",
+        "category": "输出处理",
+        "required_fields": []
+      }
+    ]
   }
 }
